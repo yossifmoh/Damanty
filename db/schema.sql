@@ -1,5 +1,14 @@
 -- Damanty PWA Production Schema (Neon Serverless PostgreSQL)
 
+CREATE TABLE IF NOT EXISTS vault_users (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT,
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS vault_devices (
   id TEXT PRIMARY KEY,
   user_key TEXT NOT NULL,

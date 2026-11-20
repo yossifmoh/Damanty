@@ -14,9 +14,18 @@ import {
   Map,
   Database,
   RefreshCw,
+  LogIn,
+  LogOut,
+  UserPlus,
+  BadgeCheck,
 } from 'lucide-react';
 import { B2B_ANALYTICS } from '../data/mockData';
 import QrCodeSvg from './QrCodeSvg';
+import {
+  signInAccount,
+  signUpAccount,
+  signOutAccount,
+} from '../utils/cloudSync';
 
 export default function AccountB2BScreen({
   lang,
@@ -28,6 +37,8 @@ export default function AccountB2BScreen({
   t,
   cloudStatus,
   onManualSync,
+  user,
+  onAuthChanged,
 }) {
   const isAr = lang === 'ar';
   const [batchBrand, setBatchBrand] = useState('LG');
@@ -36,6 +47,60 @@ export default function AccountB2BScreen({
   const [generatedBatch, setGeneratedBatch] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [syncSuccess, setSyncSuccess] = useState(false);
+
+  // Auth form state
+  const [authTab, setAuthTab] = useState('signin'); // 'signin' | 'signup' | null
+  const [authName, setAuthName] = useState('');
+  const [authPhone, setAuthPhone] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authIdentifier, setAuthIdentifier] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+
+  const mapAuthError = (code) => {
+    if (code === 'INVALID_INPUT') return t.account.authErrInvalid;
+    if (code === 'EMAIL_EXISTS') return t.account.authErrEmailExists;
+    if (code === 'INVALID_CREDENTIALS') return t.account.authErrCredentials;
+    return t.account.authErrServer;
+  };
+
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      const res =
+        authTab === 'signup'
+          ? await signUpAccount({
+              name: authName,
+              phone: authPhone,
+              email: authEmail,
+              password: authPassword,
+            })
+          : await signInAccount({
+              identifier: authIdentifier,
+              password: authPassword,
+            });
+      if (!res?.ok || !res.user) {
+        setAuthError(mapAuthError(res?.error));
+      } else {
+        setAuthPassword('');
+        await onAuthChanged?.(res.user, authTab === 'signup');
+      }
+    } catch {
+      setAuthError(t.account.authErrServer);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    setAuthLoading(true);
+    await signOutAccount();
+    await onAuthChanged?.(null, false);
+    setAuthLoading(false);
+  };
 
   const handleManualSyncClick = async () => {
     if (!onManualSync) return;
@@ -64,19 +129,179 @@ export default function AccountB2BScreen({
         </h2>
       </div>
 
-      {/* User Profile Card */}
-      <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/75 backdrop-blur-xl p-4 flex items-center gap-3.5">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-500">
-          <User className="h-6 w-6" />
+      {/* User Account & Sign In / Sign Up / Sign Out Card */}
+      <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/75 backdrop-blur-xl p-4 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-500">
+              <User className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
+                  {user ? user.name : t.account.userName}
+                </h3>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    user
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
+                      : 'bg-amber-500/15 text-amber-600 dark:text-amber-300'
+                  }`}
+                >
+                  {user && <BadgeCheck className="h-3 w-3" />}
+                  {user ? t.account.signedInBadge : t.account.guestBadge}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5">
+                {user ? user.email : t.account.userPhone}
+              </p>
+              {user?.phone && (
+                <p className="text-[11px] text-slate-400 font-mono">{user.phone}</p>
+              )}
+            </div>
+          </div>
+
+          {user && (
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              disabled={authLoading}
+              onClick={handleSignOut}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-rose-500/35 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-300 disabled:opacity-60"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span>{t.account.signOutBtn}</span>
+            </motion.button>
+          )}
         </div>
-        <div>
-          <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-            {t.account.userName}
-          </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-            {t.account.userPhone}
-          </p>
-        </div>
+
+        {/* Sign In / Sign Up Form when Guest */}
+        {!user && (
+          <div className="pt-3 border-t border-slate-100 dark:border-white/10 space-y-3">
+            <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-slate-100 dark:bg-slate-950 p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthTab('signin');
+                  setAuthError('');
+                }}
+                className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition-all ${
+                  authTab === 'signin'
+                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <LogIn className="h-3.5 w-3.5" />
+                <span>{t.account.signInBtn}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthTab('signup');
+                  setAuthError('');
+                }}
+                className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition-all ${
+                  authTab === 'signup'
+                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                <span>{t.account.signUpBtn}</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleAuthSubmit} className="space-y-2.5 text-xs">
+              {authTab === 'signup' ? (
+                <>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                      {t.account.authNameLabel}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={authName}
+                      onChange={(e) => setAuthName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        {t.account.authEmailLabel}
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={authEmail}
+                        onChange={(e) => setAuthEmail(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        {t.account.authPhoneLabel}
+                      </label>
+                      <input
+                        type="tel"
+                        value={authPhone}
+                        onChange={(e) => setAuthPhone(e.target.value)}
+                        placeholder="+20 10..."
+                        className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-xs font-mono text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                    {t.account.authIdentifierLabel}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={authIdentifier}
+                    onChange={(e) => setAuthIdentifier(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                  {t.account.authPasswordLabel}
+                </label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              {authError && (
+                <div className="rounded-xl border border-rose-500/35 bg-rose-500/10 px-3 py-2 text-[11px] font-semibold text-rose-600 dark:text-rose-300">
+                  {authError}
+                </div>
+              )}
+
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                type="submit"
+                disabled={authLoading}
+                className="w-full rounded-xl bg-emerald-500 py-2.5 text-xs font-extrabold text-slate-950 shadow-md shadow-emerald-500/20 disabled:opacity-60"
+              >
+                {authLoading
+                  ? '...'
+                  : authTab === 'signup'
+                  ? t.account.authSubmitSignUp
+                  : t.account.authSubmitSignIn}
+              </motion.button>
+            </form>
+          </div>
+        )}
       </div>
 
       {/* Preferences: Language & Theme */}

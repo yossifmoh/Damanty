@@ -53,6 +53,7 @@ export default function VaultScreen({
   liveBanner,
   onClearBanner,
   onNavigateDiagnostics,
+  onNavigateScan,
   photoCounts = {},
   onPhotoChanged,
 }) {
@@ -261,7 +262,34 @@ export default function VaultScreen({
       )}
 
       {/* Device Warranty Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+      {devices.length === 0 ? (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-3xl border border-dashed border-emerald-500/35 bg-white/80 dark:bg-slate-900/60 p-8 text-center space-y-3"
+        >
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-500">
+            <ShieldCheck className="h-7 w-7" />
+          </div>
+          <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+            {t.vault.emptyVaultTitle}
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
+            {t.vault.emptyVaultDesc}
+          </p>
+          {onNavigateScan && (
+            <motion.button
+              whileTap={{ scale: 0.96 }}
+              onClick={onNavigateScan}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-3 text-xs font-extrabold text-slate-950 shadow-lg shadow-emerald-500/25"
+            >
+              <Plus className="h-4 w-4" />
+              <span>{t.vault.emptyVaultBtn}</span>
+            </motion.button>
+          )}
+        </motion.div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
         {devices.map((device, index) => {
           const isExpiring = device.status === 'expiring_soon';
           return (
@@ -372,7 +400,8 @@ export default function VaultScreen({
             </motion.div>
           );
         })}
-      </div>
+        </div>
+      )}
 
       {/* 3D Holographic Flippable Warranty Certificate Bottom Sheet */}
       <AnimatePresence>

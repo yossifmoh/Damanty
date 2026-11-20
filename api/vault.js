@@ -1,4 +1,15 @@
 import { neon } from '@neondatabase/serverless';
+import { getSessionFromRequest } from './_authUtils.js';
+
+function scopeId(userKey, rawId) {
+  const prefix = `${userKey}::`;
+  return String(rawId).startsWith(prefix) ? String(rawId) : `${prefix}${rawId}`;
+}
+
+function unscopeId(userKey, dbId) {
+  const prefix = `${userKey}::`;
+  return String(dbId).startsWith(prefix) ? String(dbId).slice(prefix.length) : String(dbId);
+}
 
 async function ensureSchema(sql) {
   await sql`
@@ -58,13 +69,14 @@ async function ensureSchema(sql) {
 }
 
 async function upsertDevice(sql, userKey, d) {
+  const scopedDevId = scopeId(userKey, d.id);
   await sql`
     INSERT INTO vault_devices (
       id, user_key, brand, brand_ar, category, name_en, name_ar, model, serial,
       purchase_date, expiry_date, remaining_pct, days_left, warranty_years,
       hotline, authorized_group_en, authorized_group_ar, retailer_en, retailer_ar, status
     ) VALUES (
-      ${d.id}, ${userKey}, ${d.brand}, ${d.brandAr || d.brand}, ${d.category || 'washer'},
+      ${scopedDevId}, ${userKey}, ${d.brand}, ${d.brandAr || d.brand}, ${d.category || 'washer'},
       ${d.nameEn}, ${d.nameAr || d.nameEn}, ${d.model || ''}, ${d.serial},
       ${d.purchaseDate || ''}, ${d.expiryDate || ''}, ${Number(d.remainingPct ?? 100)},
       ${Number(d.daysLeft ?? 1095)}, ${Number(d.warrantyYears ?? 3)},
@@ -85,12 +97,14 @@ async function upsertDevice(sql, userKey, d) {
 }
 
 async function upsertMaintenanceLog(sql, userKey, deviceId, log) {
+  const scopedDevId = scopeId(userKey, deviceId);
+  const scopedLogId = scopeId(userKey, log.id);
   await sql`
     INSERT INTO maintenance_logs (
       id, device_id, user_key, log_date, title_en, title_ar, part_en, part_ar,
       cost_egp, covered_by_warranty, tech_center_en, tech_center_ar
     ) VALUES (
-      ${log.id}, ${deviceId}, ${userKey}, ${log.date || ''},
+      ${scopedLogId}, ${scopedDevId}, ${userKey}, ${log.date || ''},
       ${log.titleEn || ''}, ${log.titleAr || ''}, ${log.partEn || ''}, ${log.partAr || ''},
       ${Number(log.costEgp || 0)}, ${Boolean(log.coveredByWarranty)},
       ${log.techCenterEn || ''}, ${log.techCenterAr || ''}
@@ -101,10 +115,12 @@ async function upsertMaintenanceLog(sql, userKey, deviceId, log) {
 
 async function insertReceiptProof(sql, userKey, deviceId, proof) {
   if (!proof?.id || !proof?.sha256) return;
+  const scopedDevId = scopeId(userKey, deviceId);
+  const scopedProofId = scopeId(userKey, proof.id);
   await sql`
     INSERT INTO receipt_proofs (id, device_id, user_key, title, doc_type, sha256, captured_at)
     VALUES (
-      ${proof.id}, ${deviceId}, ${userKey}, ${proof.title || 'Receipt'},
+      ${scopedProofId}, ${scopedDevId}, ${userKey}, ${proof.title || 'Receipt'},
       ${proof.docType || 'warranty'}, ${proof.sha256}, ${proof.capturedAt || ''}
     )
     ON CONFLICT (id) DO NOTHING
@@ -121,9 +137,10 @@ export default async function handler(req, res) {
 
   try {
     await ensureSchema(sql);
+    const session = getSessionFromRequest(req);
+    const userKey = session?.userId || 'eg-demo-guest';
 
     if (req.method === 'GET') {
-      const userKey = String(req.query.userKey || 'eg-default-vault');
       const devicesRows = await sql`
         SELECT * FROM vault_devices WHERE user_key = ${userKey} ORDER BY created_at DESC
       `;
@@ -136,9 +153,10 @@ export default async function handler(req, res) {
 
       const logsByDevice = {};
       for (const l of logsRows) {
-        if (!logsByDevice[l.device_id]) logsByDevice[l.device_id] = [];
-        logsByDevice[l.device_id].push({
-          id: l.id,
+        const cleanDevId = unscopeId(userKey, l.device_id);
+        if (!logsByDevice[cleanDevId]) logsByDevice[cleanDevId] = [];
+        logsByDevice[cleanDevId].push({
+          id: unscopeId(userKey, l.id),
           date: l.log_date,
           titleEn: l.title_en,
           titleAr: l.title_ar,
@@ -153,9 +171,10 @@ export default async function handler(req, res) {
 
       const proofsByDevice = {};
       for (const p of proofsRows) {
-        if (!proofsByDevice[p.device_id]) proofsByDevice[p.device_id] = [];
-        proofsByDevice[p.device_id].push({
-          id: p.id,
+        const cleanDevId = unscopeId(userKey, p.device_id);
+        if (!proofsByDevice[cleanDevId]) proofsByDevice[cleanDevId] = [];
+        proofsByDevice[cleanDevId].push({
+          id: unscopeId(userKey, p.id),
           title: p.title,
           docType: p.doc_type,
           sha256: p.sha256,
@@ -163,38 +182,45 @@ export default async function handler(req, res) {
         });
       }
 
-      const devices = devicesRows.map((row) => ({
-        id: row.id,
-        brand: row.brand,
-        brandAr: row.brand_ar,
-        category: row.category,
-        nameEn: row.name_en,
-        nameAr: row.name_ar,
-        model: row.model,
-        serial: row.serial,
-        purchaseDate: row.purchase_date,
-        expiryDate: row.expiry_date,
-        remainingPct: row.remaining_pct,
-        daysLeft: row.days_left,
-        warrantyYears: row.warranty_years,
-        hotline: row.hotline,
-        authorizedGroupEn: row.authorized_group_en,
-        authorizedGroupAr: row.authorized_group_ar,
-        retailerEn: row.retailer_en,
-        retailerAr: row.retailer_ar,
-        accentFrom: row.status === 'expiring_soon' ? '#f59e0b' : '#10b981',
-        accentTo: row.status === 'expiring_soon' ? '#d97706' : '#059669',
-        status: row.status,
-        maintenanceLog: logsByDevice[row.id] || [],
-        cloudProofs: proofsByDevice[row.id] || [],
-      }));
+      const devices = devicesRows.map((row) => {
+        const cleanId = unscopeId(userKey, row.id);
+        return {
+          id: cleanId,
+          brand: row.brand,
+          brandAr: row.brand_ar,
+          category: row.category,
+          nameEn: row.name_en,
+          nameAr: row.name_ar,
+          model: row.model,
+          serial: row.serial,
+          purchaseDate: row.purchase_date,
+          expiryDate: row.expiry_date,
+          remainingPct: row.remaining_pct,
+          daysLeft: row.days_left,
+          warrantyYears: row.warranty_years,
+          hotline: row.hotline,
+          authorizedGroupEn: row.authorized_group_en,
+          authorizedGroupAr: row.authorized_group_ar,
+          retailerEn: row.retailer_en,
+          retailerAr: row.retailer_ar,
+          accentFrom: row.status === 'expiring_soon' ? '#f59e0b' : '#10b981',
+          accentTo: row.status === 'expiring_soon' ? '#d97706' : '#059669',
+          status: row.status,
+          maintenanceLog: logsByDevice[cleanId] || [],
+          cloudProofs: proofsByDevice[cleanId] || [],
+        };
+      });
 
-      return res.status(200).json({ ok: true, devices, proofsCount: proofsRows.length });
+      return res.status(200).json({
+        ok: true,
+        authenticated: Boolean(session),
+        devices,
+        proofsCount: proofsRows.length,
+      });
     }
 
     if (req.method === 'POST') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-      const userKey = String(body.userKey || 'eg-default-vault');
       const action = body.action;
 
       if (action === 'sync_all' && Array.isArray(body.devices)) {

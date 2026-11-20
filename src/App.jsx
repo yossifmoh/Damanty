@@ -18,6 +18,7 @@ import CentersScreen from './components/CentersScreen';
 import AccountB2BScreen from './components/AccountB2BScreen';
 import { savePhotoDoc, getAllPhotoCounts } from './utils/photoVault';
 import {
+  getSessionUser,
   checkNeonHealth,
   fetchCloudVault,
   syncAllDevicesToCloud,
@@ -59,6 +60,11 @@ export default function App() {
   const [diagDeviceId, setDiagDeviceId] = useState(null);
   const [photoCounts, setPhotoCounts] = useState({});
   const [cloudStatus, setCloudStatus] = useState({ ok: false });
+  const [user, setUser] = useState(null);
+
+  const getDevicesStorageKey = useCallback((usr) => {
+    return usr?.id ? `damanty_devices_${usr.id}` : STORAGE_KEYS.DEVICES;
+  }, []);
 
   const refreshPhotoCounts = useCallback(() => {
     getAllPhotoCounts().then(setPhotoCounts);
@@ -68,28 +74,36 @@ export default function App() {
     refreshPhotoCounts();
   }, [refreshPhotoCounts]);
 
-  // Initial Neon PostgreSQL cloud health & vault sync
+  // Initial session + Neon PostgreSQL cloud health & vault sync
   useEffect(() => {
     let active = true;
     async function initCloudSync() {
-      const health = await checkNeonHealth();
+      const [sessionUser, health] = await Promise.all([
+        getSessionUser(),
+        checkNeonHealth(),
+      ]);
       if (!active) return;
       setCloudStatus(health);
-      if (!health?.ok) return;
+      setUser(sessionUser);
 
+      if (sessionUser) {
+        try {
+          const cached = localStorage.getItem(getDevicesStorageKey(sessionUser));
+          if (cached) setDevices(JSON.parse(cached));
+          else setDevices([]);
+        } catch {
+          setDevices([]);
+        }
+      }
+
+      if (!health?.ok) return;
       const cloudData = await fetchCloudVault();
       if (!active) return;
+
       if (cloudData?.devices?.length > 0) {
-        setDevices((prev) => {
-          const map = new Map();
-          cloudData.devices.forEach((d) => map.set(d.id, d));
-          prev.forEach((d) => {
-            if (!map.has(d.id)) map.set(d.id, d);
-          });
-          return Array.from(map.values());
-        });
-      } else {
-        await syncAllDevicesToCloud(devices);
+        setDevices(cloudData.devices);
+      } else if (!sessionUser) {
+        await syncAllDevicesToCloud(INITIAL_DEVICES);
       }
     }
     initCloudSync();
@@ -99,6 +113,55 @@ export default function App() {
     // Run once on initial mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleAuthChanged = async (newUser, isSignUp) => {
+    setUser(newUser);
+    if (!newUser) {
+      // Signed out -> restore Guest Demo vault
+      try {
+        const guestSaved = localStorage.getItem(STORAGE_KEYS.DEVICES);
+        setDevices(guestSaved ? JSON.parse(guestSaved) : INITIAL_DEVICES);
+      } catch {
+        setDevices(INITIAL_DEVICES);
+      }
+      const cloudData = await fetchCloudVault();
+      if (cloudData?.devices?.length > 0) {
+        setDevices(cloudData.devices);
+      }
+      return;
+    }
+
+    if (isSignUp) {
+      // New user starts with a clean private vault
+      setDevices([]);
+      setLiveBanner(
+        isAr
+          ? `أهلاً بك يا ${newUser.name}! خزنتك الشخصية جاهزة الآن.`
+          : `Welcome, ${newUser.name}! Your private vault is ready.`
+      );
+      setActiveTab('vault');
+      return;
+    }
+
+    // Existing user signed in -> load from Neon PostgreSQL
+    const cloudData = await fetchCloudVault();
+    if (cloudData?.devices) {
+      setDevices(cloudData.devices);
+    } else {
+      try {
+        const cached = localStorage.getItem(getDevicesStorageKey(newUser));
+        setDevices(cached ? JSON.parse(cached) : []);
+      } catch {
+        setDevices([]);
+      }
+    }
+    setLiveBanner(
+      isAr
+        ? `تم تسجيل الدخول باسم ${newUser.name}`
+        : `Signed in as ${newUser.name}`
+    );
+    setActiveTab('vault');
+  };
 
   const handleManualCloudSync = async () => {
     const res = await syncAllDevicesToCloud(devices);
@@ -122,14 +185,14 @@ export default function App() {
     }
   }, [lang, theme, isAr]);
 
-  // Persist state in localStorage
+  // Persist state in localStorage scoped by signed-in user
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEYS.DEVICES, JSON.stringify(devices));
+      localStorage.setItem(getDevicesStorageKey(user), JSON.stringify(devices));
     } catch {
       // Ignore storage quota errors
     }
-  }, [devices]);
+  }, [devices, user, getDevicesStorageKey]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.LANG, lang);
@@ -286,8 +349,24 @@ export default function App() {
             </nav>
           </div>
 
-          {/* Desktop Quick Toggles */}
-          <div className="space-y-2 pt-4 border-t border-slate-200/70 dark:border-white/10">
+          {/* Desktop Quick Toggles & Account Status */}
+          <div className="space-y-2.5 pt-4 border-t border-slate-200/70 dark:border-white/10">
+            <button
+              onClick={() => setActiveTab('account')}
+              className="w-full flex items-center justify-between gap-2 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-900/70 px-3 py-2 text-start hover:border-emerald-500/40 transition-colors"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <UserCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span className="text-xs font-bold truncate text-slate-800 dark:text-slate-100">
+                  {user ? user.name : t.account.signInBtn}
+                </span>
+              </div>
+              <span
+                className={`h-2 w-2 rounded-full shrink-0 ${
+                  user ? 'bg-emerald-500' : 'bg-amber-500'
+                }`}
+              />
+            </button>
             <div className="flex items-center gap-2">
               <motion.button
                 whileTap={{ scale: 0.95 }}
@@ -338,8 +417,18 @@ export default function App() {
               </div>
             </div>
 
-            {/* Instant AR/EN & Night/Light Toggles */}
+            {/* Instant Account + AR/EN & Night/Light Toggles */}
             <div className="flex items-center gap-1.5">
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={() => setActiveTab('account')}
+                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 max-w-[96px]"
+              >
+                <UserCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                <span className="truncate">
+                  {user ? user.name.split(' ')[0] : isAr ? 'دخول' : 'Sign In'}
+                </span>
+              </motion.button>
               <motion.button
                 whileTap={{ scale: 0.92 }}
                 onClick={() => setLang((l) => (l === 'ar' ? 'en' : 'ar'))}
@@ -382,6 +471,7 @@ export default function App() {
                       liveBanner={liveBanner}
                       onClearBanner={() => setLiveBanner(null)}
                       onNavigateDiagnostics={handleNavigateDiagnostics}
+                      onNavigateScan={() => setActiveTab('scan')}
                       photoCounts={photoCounts}
                       onPhotoChanged={refreshPhotoCounts}
                     />
@@ -417,6 +507,8 @@ export default function App() {
                       t={t}
                       cloudStatus={cloudStatus}
                       onManualSync={handleManualCloudSync}
+                      user={user}
+                      onAuthChanged={handleAuthChanged}
                     />
                   )}
                 </motion.div>

@@ -1,16 +1,60 @@
-const DEFAULT_USER_KEY = 'eg-201008429910';
-
-export function getVaultUserKey() {
+export async function getSessionUser() {
   try {
-    return localStorage.getItem('damanty_user_key_v1') || DEFAULT_USER_KEY;
+    const res = await fetch('/api/auth', { credentials: 'include' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.ok ? data.user || null : null;
   } catch {
-    return DEFAULT_USER_KEY;
+    return null;
+  }
+}
+
+export async function signUpAccount({ name, phone, email, password }) {
+  const res = await fetch('/api/auth', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      action: 'signup',
+      name,
+      phone,
+      email,
+      password,
+    }),
+  });
+  return await res.json();
+}
+
+export async function signInAccount({ identifier, password }) {
+  const res = await fetch('/api/auth', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      action: 'signin',
+      identifier,
+      password,
+    }),
+  });
+  return await res.json();
+}
+
+export async function signOutAccount() {
+  try {
+    await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ action: 'signout' }),
+    });
+  } catch {
+    // Ignore network error on sign out
   }
 }
 
 export async function checkNeonHealth() {
   try {
-    const res = await fetch('/api/health');
+    const res = await fetch('/api/health', { credentials: 'include' });
     if (!res.ok) return { ok: false };
     return await res.json();
   } catch {
@@ -20,8 +64,7 @@ export async function checkNeonHealth() {
 
 export async function fetchCloudVault() {
   try {
-    const userKey = encodeURIComponent(getVaultUserKey());
-    const res = await fetch(`/api/vault?userKey=${userKey}`);
+    const res = await fetch('/api/vault', { credentials: 'include' });
     if (!res.ok) return null;
     const data = await res.json();
     return data?.ok ? data : null;
@@ -35,9 +78,9 @@ export async function syncAllDevicesToCloud(devices) {
     const res = await fetch('/api/vault', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({
         action: 'sync_all',
-        userKey: getVaultUserKey(),
         devices,
       }),
     });
@@ -53,15 +96,15 @@ export async function syncNewDeviceToCloud(device, proof) {
     await fetch('/api/vault', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({
         action: 'add_device',
-        userKey: getVaultUserKey(),
         device,
         proof,
       }),
     });
   } catch {
-    // Offline fallback stays intact in localStorage + IndexedDB
+    // Offline fallback stays intact
   }
 }
 
@@ -70,9 +113,9 @@ export async function syncMaintenanceToCloud(deviceId, logEntry, proof) {
     await fetch('/api/vault', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({
         action: 'add_maintenance',
-        userKey: getVaultUserKey(),
         deviceId,
         logEntry,
         proof,
@@ -88,9 +131,9 @@ export async function syncProofToCloud(deviceId, proof) {
     await fetch('/api/vault', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({
         action: 'add_proof',
-        userKey: getVaultUserKey(),
         deviceId,
         proof,
       }),
