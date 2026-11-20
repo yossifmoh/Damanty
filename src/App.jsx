@@ -199,9 +199,9 @@ export default function App() {
         </aside>
 
         {/* Main Content Column */}
-        <div className="relative flex flex-1 min-w-0 flex-col h-[100dvh] overflow-hidden">
+        <div className="relative flex flex-1 min-w-0 flex-col min-h-[100dvh] md:h-[100dvh] md:overflow-hidden">
           {/* Mobile Top Bar (hidden on Desktop md+) */}
-          <header className="md:hidden pt-safe shrink-0 z-20 flex items-center justify-between px-4 py-3 border-b border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-[#060913]/80 backdrop-blur-xl">
+          <header className="md:hidden sticky top-0 pt-safe shrink-0 z-30 flex items-center justify-between px-4 py-3 border-b border-slate-200/70 dark:border-white/10 bg-white/85 dark:bg-[#060913]/85 backdrop-blur-xl">
             <div className="flex items-center gap-2.5">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 text-slate-950 shadow-md shadow-emerald-500/25">
                 <ShieldCheck className="h-5 w-5 stroke-[2.4]" />
@@ -250,7 +250,7 @@ export default function App() {
           </header>
 
           {/* Scrollable Screen Body */}
-          <main className="flex-1 overflow-y-auto no-scrollbar px-4 md:px-8 pt-4 md:pt-7">
+          <main className="flex-1 md:overflow-y-auto no-scrollbar px-4 md:px-8 pt-4 md:pt-7">
             <div className="mx-auto w-full max-w-5xl">
               <AnimatePresence mode="wait">
                 <motion.div
@@ -304,8 +304,8 @@ export default function App() {
             </div>
           </main>
 
-          {/* Mobile Floating Bottom Navigation Bar (hidden on Desktop md+) */}
-          <nav className="md:hidden pointer-events-none absolute bottom-0 inset-x-0 z-30 px-3 pb-safe">
+          {/* Mobile Floating Bottom Navigation Bar (fixed to viewport bottom, hidden on Desktop md+) */}
+          <nav className="md:hidden pointer-events-none fixed bottom-0 inset-x-0 z-40 px-3 pb-safe">
             <div className="pointer-events-auto relative mx-auto flex items-center justify-between rounded-3xl border border-slate-200/80 dark:border-white/15 bg-white/90 dark:bg-slate-900/90 backdrop-blur-2xl px-2 py-2 shadow-2xl shadow-black/25">
               <NavTab
                 active={activeTab === 'vault'}
