@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ShieldCheck,
@@ -16,6 +16,7 @@ import ScannerScreen from './components/ScannerScreen';
 import DiagnosticsScreen from './components/DiagnosticsScreen';
 import CentersScreen from './components/CentersScreen';
 import AccountB2BScreen from './components/AccountB2BScreen';
+import { savePhotoDoc, getAllPhotoCounts } from './utils/photoVault';
 
 const STORAGE_KEYS = {
   DEVICES: 'damanty_devices_v1',
@@ -49,6 +50,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('vault');
   const [liveBanner, setLiveBanner] = useState(null);
   const [diagDeviceId, setDiagDeviceId] = useState(null);
+  const [photoCounts, setPhotoCounts] = useState({});
+
+  const refreshPhotoCounts = useCallback(() => {
+    getAllPhotoCounts().then(setPhotoCounts);
+  }, []);
+
+  useEffect(() => {
+    refreshPhotoCounts();
+  }, [refreshPhotoCounts]);
 
   const t = TRANSLATIONS[lang] || TRANSLATIONS.ar;
   const isAr = lang === 'ar';
@@ -86,9 +96,39 @@ export default function App() {
     localStorage.setItem(STORAGE_KEYS.B2B, String(b2bMode));
   }, [b2bMode]);
 
-  const handleAddDevice = (newDevice) => {
+  const handleAddDevice = async (newDevice, previewUrl) => {
     setDevices((prev) => [newDevice, ...prev]);
+    if (previewUrl) {
+      await savePhotoDoc({
+        deviceId: newDevice.id,
+        title: isAr ? newDevice.nameAr : newDevice.nameEn,
+        docType: 'warranty',
+        dataUrl: previewUrl,
+      }).catch(() => {});
+      refreshPhotoCounts();
+    }
     setLiveBanner(t.scanner.addedToast);
+    setActiveTab('vault');
+  };
+
+  const handleAddMaintenanceRecord = async (deviceId, logEntry, previewUrl) => {
+    setDevices((prev) =>
+      prev.map((dev) =>
+        dev.id === deviceId
+          ? { ...dev, maintenanceLog: [logEntry, ...(dev.maintenanceLog || [])] }
+          : dev
+      )
+    );
+    if (previewUrl) {
+      await savePhotoDoc({
+        deviceId,
+        title: isAr ? logEntry.titleAr : logEntry.titleEn,
+        docType: 'maintenance',
+        dataUrl: previewUrl,
+      }).catch(() => {});
+      refreshPhotoCounts();
+    }
+    setLiveBanner(t.scanner.maintAddedToast);
     setActiveTab('vault');
   };
 
@@ -268,6 +308,8 @@ export default function App() {
                       liveBanner={liveBanner}
                       onClearBanner={() => setLiveBanner(null)}
                       onNavigateDiagnostics={handleNavigateDiagnostics}
+                      photoCounts={photoCounts}
+                      onPhotoChanged={refreshPhotoCounts}
                     />
                   )}
                   {activeTab === 'diagnostics' && (
@@ -280,9 +322,11 @@ export default function App() {
                   )}
                   {activeTab === 'scan' && (
                     <ScannerScreen
+                      devices={devices}
                       lang={lang}
                       t={t}
                       onAddDevice={handleAddDevice}
+                      onAddMaintenanceRecord={handleAddMaintenanceRecord}
                     />
                   )}
                   {activeTab === 'centers' && <CentersScreen lang={lang} t={t} />}

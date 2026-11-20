@@ -41,10 +41,19 @@ function computeExpiryAndDays(purchaseDate, years) {
   };
 }
 
-export default function ScannerScreen({ lang, t, onAddDevice }) {
+export default function ScannerScreen({
+  devices = [],
+  lang,
+  t,
+  onAddDevice,
+  onAddMaintenanceRecord,
+}) {
   const isAr = lang === 'ar';
   const [mode, setMode] = useState('ocr'); // 'ocr' | 'antifake'
   const [selectedPresetId, setSelectedPresetId] = useState(OCR_SAMPLE_PRESETS[0].id);
+  const [saveTarget, setSaveTarget] = useState('new'); // 'new' | 'maintenance'
+  const [targetDeviceId, setTargetDeviceId] = useState(devices[0]?.id || '');
+  const [maintCovered, setMaintCovered] = useState(false);
 
   // Camera state
   const [cameraActive, setCameraActive] = useState(false);
@@ -185,8 +194,11 @@ export default function ScannerScreen({ lang, t, onAddDevice }) {
       setRawText(extracted.rawText || '');
       const parsed = parseEgyptianReceipt(extracted.rawText, extracted.qrText, 'camera-capture.jpg');
       setOcrResult(parsed);
+      setSaveTarget(parsed.suggestedDocKind === 'maintenance' && devices.length ? 'maintenance' : 'new');
+      setMaintCovered(parsed.detectedCostEgp === 0);
     } catch {
       setOcrResult(parseEgyptianReceipt('', '', 'camera-capture.jpg'));
+      setSaveTarget('new');
     } finally {
       setScanning(false);
     }
@@ -230,8 +242,11 @@ export default function ScannerScreen({ lang, t, onAddDevice }) {
         file.name
       );
       setOcrResult(parsed);
+      setSaveTarget(parsed.suggestedDocKind === 'maintenance' && devices.length ? 'maintenance' : 'new');
+      setMaintCovered(parsed.detectedCostEgp === 0);
     } catch {
       setOcrResult(parseEgyptianReceipt('', '', file.name));
+      setSaveTarget('new');
     } finally {
       setScanning(false);
     }
@@ -275,7 +290,24 @@ export default function ScannerScreen({ lang, t, onAddDevice }) {
 
   const handleSaveDevice = () => {
     if (!ocrResult) return;
-    onAddDevice(ocrResult);
+    if (saveTarget === 'maintenance' && targetDeviceId && onAddMaintenanceRecord) {
+      const targetDev = devices.find((d) => d.id === targetDeviceId) || devices[0];
+      const logEntry = {
+        id: `log-${Date.now()}`,
+        date: ocrResult.purchaseDate || new Date().toISOString().slice(0, 10),
+        titleEn: ocrResult.repairTitleEn || 'Maintenance Service',
+        titleAr: ocrResult.repairTitleAr || 'صيانة دورية',
+        partEn: ocrResult.partEn || 'Verified Part / Inspection',
+        partAr: ocrResult.partAr || 'فحص فني معتمد',
+        costEgp: maintCovered ? 0 : Number(ocrResult.detectedCostEgp || 0),
+        coveredByWarranty: maintCovered,
+        techCenterEn: targetDev?.authorizedGroupEn || 'Authorized Service Egypt',
+        techCenterAr: targetDev?.authorizedGroupAr || 'مركز الصيانة المعتمد',
+      };
+      onAddMaintenanceRecord(targetDeviceId, logEntry, previewUrl);
+    } else {
+      onAddDevice(ocrResult, previewUrl);
+    }
     setOcrResult(null);
     setPreviewUrl(null);
     setRawText('');
@@ -604,8 +636,37 @@ export default function ScannerScreen({ lang, t, onAddDevice }) {
                       <h3 className="text-sm font-extrabold">{t.scanner.extractedTitle}</h3>
                     </div>
 
-                    {/* Editable Extracted Fields */}
-                    <div className="rounded-xl bg-white/95 dark:bg-slate-900/90 p-3.5 text-xs space-y-2.5">
+                    {/* Save Destination Toggle: New Appliance vs Maintenance Receipt */}
+                    {devices.length > 0 && (
+                      <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-white/80 dark:bg-slate-950/60 p-1">
+                        <button
+                          type="button"
+                          onClick={() => setSaveTarget('new')}
+                          className={`rounded-lg py-2 px-2 text-[11px] font-bold transition-all ${
+                            saveTarget === 'new'
+                              ? 'bg-emerald-500 text-slate-950'
+                              : 'text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          {t.scanner.saveTargetNew}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSaveTarget('maintenance')}
+                          className={`rounded-lg py-2 px-2 text-[11px] font-bold transition-all ${
+                            saveTarget === 'maintenance'
+                              ? 'bg-amber-500 text-slate-950'
+                              : 'text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          {t.scanner.saveTargetMaint}
+                        </button>
+                      </div>
+                    )}
+
+                    {saveTarget === 'new' ? (
+                      /* Editable Extracted Fields for New Appliance */
+                      <div className="rounded-xl bg-white/95 dark:bg-slate-900/90 p-3.5 text-xs space-y-2.5">
                       <div>
                         <label className="text-[10px] font-bold text-slate-400 block mb-1">
                           {t.scanner.fieldName}
@@ -697,6 +758,86 @@ export default function ScannerScreen({ lang, t, onAddDevice }) {
                         </span>
                       </div>
                     </div>
+                    ) : (
+                      /* Maintenance Receipt Form for Existing Device */
+                      <div className="rounded-xl bg-white/95 dark:bg-slate-900/90 p-3.5 text-xs space-y-2.5">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                            {t.scanner.chooseTargetDevice}
+                          </label>
+                          <select
+                            value={targetDeviceId}
+                            onChange={(e) => setTargetDeviceId(e.target.value)}
+                            className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 text-xs font-bold text-slate-900 dark:text-white"
+                          >
+                            {devices.map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {isAr ? d.nameAr : d.nameEn} ({d.model})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                            {t.scanner.repairTitleLabel}
+                          </label>
+                          <input
+                            type="text"
+                            value={isAr ? ocrResult.repairTitleAr : ocrResult.repairTitleEn}
+                            onChange={(e) =>
+                              handleFieldChange(
+                                isAr ? 'repairTitleAr' : 'repairTitleEn',
+                                e.target.value
+                              )
+                            }
+                            className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 text-xs font-bold text-slate-900 dark:text-white"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                              {t.scanner.partLabel}
+                            </label>
+                            <input
+                              type="text"
+                              value={isAr ? ocrResult.partAr : ocrResult.partEn}
+                              onChange={(e) =>
+                                handleFieldChange(isAr ? 'partAr' : 'partEn', e.target.value)
+                              }
+                              className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 text-xs font-bold text-slate-900 dark:text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                              {t.scanner.costLabel}
+                            </label>
+                            <input
+                              type="number"
+                              disabled={maintCovered}
+                              value={maintCovered ? 0 : ocrResult.detectedCostEgp || 0}
+                              onChange={(e) =>
+                                handleFieldChange('detectedCostEgp', Number(e.target.value) || 0)
+                              }
+                              className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 text-xs font-mono font-bold text-slate-900 dark:text-white disabled:opacity-50"
+                            />
+                          </div>
+                        </div>
+
+                        <label className="flex items-center gap-2 pt-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={maintCovered}
+                            onChange={(e) => setMaintCovered(e.target.checked)}
+                            className="h-4 w-4 accent-emerald-500 rounded"
+                          />
+                          <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                            {t.scanner.coveredToggle}
+                          </span>
+                        </label>
+                      </div>
+                    )}
 
                     {rawText && (
                       <div>
@@ -723,10 +864,14 @@ export default function ScannerScreen({ lang, t, onAddDevice }) {
                       <motion.button
                         whileTap={{ scale: 0.96 }}
                         onClick={handleSaveDevice}
-                        className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-3 text-xs font-extrabold text-slate-950"
+                        className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-3 px-2 text-xs font-extrabold text-slate-950"
                       >
-                        <Plus className="h-4 w-4" />
-                        {t.scanner.addToVault}
+                        <Plus className="h-4 w-4 shrink-0" />
+                        <span className="truncate">
+                          {saveTarget === 'maintenance'
+                            ? t.scanner.saveMaintBtn
+                            : t.scanner.addToVault}
+                        </span>
                       </motion.button>
                       <motion.button
                         whileTap={{ scale: 0.96 }}

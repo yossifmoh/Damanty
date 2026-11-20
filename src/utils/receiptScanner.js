@@ -84,6 +84,21 @@ const BRAND_CATALOG = [
   },
 ];
 
+// Egyptian appliance model code prefix dictionary (0-token instant lookup)
+const MODEL_PREFIX_CATALOG = [
+  { prefix: /^F[24]V|^FH|^WM|^RH90/i, brand: 'LG', category: 'washer', labelEn: 'LG AI DD Front-Load Washer', labelAr: 'غسالة إل جي أوتوماتيك AI DD' },
+  { prefix: /^GR-|^GN-|^GC-/i, brand: 'LG', category: 'fridge', labelEn: 'LG Inverter Linear Refrigerator', labelAr: 'ثلاجة إل جي إنفرتر' },
+  { prefix: /^OLED|^QNED|^UR|^UT/i, brand: 'LG', category: 'tv', labelEn: 'LG 4K Smart TV', labelAr: 'شاشة إل جي 4K سمارت' },
+  { prefix: /^TH-C|^TH-H|^TH-V/i, brand: 'Tornado', category: 'ac', labelEn: 'Tornado Inverter Split AC', labelAr: 'تكييف تورنيدو إنفرتر سبليت' },
+  { prefix: /^TWV|^TWE|^TW-/i, brand: 'Tornado', category: 'washer', labelEn: 'Tornado Automatic Washer', labelAr: 'غسالة تورنيدو أوتوماتيك' },
+  { prefix: /^4T-C|^2T-C/i, brand: 'Sharp', category: 'tv', labelEn: 'Sharp 4K Google TV', labelAr: 'شاشة شارب 4K جوجل تي في' },
+  { prefix: /^SJ-/i, brand: 'Sharp', category: 'fridge', labelEn: 'Sharp Digital No-Frost Fridge', labelAr: 'ثلاجة شارب ديجيتال نوفروست' },
+  { prefix: /^R-78|^R-34|^R-25/i, brand: 'Sharp', category: 'kitchen', labelEn: 'Sharp Inverter Microwave', labelAr: 'ميكروويف شارب إنفرتر' },
+  { prefix: /^RT|^RB|^RS/i, brand: 'Samsung', category: 'fridge', labelEn: 'Samsung Twin Cooling Refrigerator', labelAr: 'ثلاجة سامسونج توين كولينج' },
+  { prefix: /^WW|^WD/i, brand: 'Samsung', category: 'washer', labelEn: 'Samsung EcoBubble Washer', labelAr: 'غسالة سامسونج إيكو بابل' },
+  { prefix: /^UA|^QA/i, brand: 'Samsung', category: 'tv', labelEn: 'Samsung Crystal / QLED 4K TV', labelAr: 'شاشة سامسونج 4K سمارت' },
+];
+
 const RETAILER_CATALOG = [
   { keys: ['b.tech', 'btech', 'بي تك', 'بيتك'], en: 'B.Tech Egypt', ar: 'بي تك مصر' },
   { keys: ['el araby', 'العربي', 'العربى'], en: 'El Araby Official Store', ar: 'معرض العربي الرسمي' },
@@ -124,13 +139,59 @@ export async function detectQrFromDataUrl(dataUrl) {
   });
 }
 
+/**
+ * Local 0-token image enhancement: upscales small receipts, converts to grayscale,
+ * and boosts contrast to improve local Tesseract accuracy on faded/thermal paper.
+ */
+export function preprocessImageForOcr(dataUrl) {
+  return new Promise((resolve) => {
+    if (!dataUrl || !dataUrl.startsWith('data:image')) {
+      resolve(dataUrl);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const targetMax = 1600;
+      const maxDim = Math.max(img.width, img.height);
+      const scale = maxDim < 900 ? Math.min(2, targetMax / maxDim) : Math.min(1, targetMax / maxDim);
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, w, h);
+
+      try {
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const data = imageData.data;
+        const contrast = 1.38;
+        for (let i = 0; i < data.length; i += 4) {
+          const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          let enhanced = (lum - 128) * contrast + 128;
+          enhanced = enhanced < 0 ? 0 : enhanced > 255 ? 255 : enhanced;
+          data[i] = enhanced;
+          data[i + 1] = enhanced;
+          data[i + 2] = enhanced;
+        }
+        ctx.putImageData(imageData, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 export async function runTesseractOcr(imageSource, onProgress) {
   const tesseractMod = await import('tesseract.js');
   const createWorker = tesseractMod.createWorker || tesseractMod.default?.createWorker;
   let worker;
   const logger = (m) => {
     if (m.status === 'recognizing text' && typeof m.progress === 'number') {
-      onProgress?.(Math.min(95, Math.max(15, Math.round(15 + m.progress * 80))));
+      onProgress?.(Math.min(95, Math.max(20, Math.round(20 + m.progress * 75))));
     }
   };
 
@@ -141,9 +202,10 @@ export async function runTesseractOcr(imageSource, onProgress) {
   }
 
   try {
+    const enhancedSource = await preprocessImageForOcr(imageSource);
     const {
       data: { text },
-    } = await worker.recognize(imageSource);
+    } = await worker.recognize(enhancedSource);
     return (text || '').trim();
   } finally {
     await worker.terminate();
@@ -179,7 +241,6 @@ async function processPdfFile(file, onProgress) {
     extractedText += `\n${pageText}`;
   }
 
-  // Render Page 1 as image for preview, QR detection, and OCR fallback if PDF contains scanned photos
   const firstPage = await pdf.getPage(1);
   const viewport = firstPage.getViewport({ scale: 1.8 });
   const canvas = document.createElement('canvas');
@@ -194,7 +255,6 @@ async function processPdfFile(file, onProgress) {
 
   let finalText = extractedText.trim();
   if (finalText.length < 25) {
-    // Scanned image-based PDF -> run OCR on rendered page
     const ocrText = await runTesseractOcr(previewUrl, onProgress);
     finalText = [finalText, ocrText].filter(Boolean).join('\n');
   }
@@ -209,7 +269,6 @@ async function processWordFile(file, onProgress) {
   const ext = file.name.toLowerCase();
 
   if (ext.endsWith('.doc') && !ext.endsWith('.docx')) {
-    // Legacy binary .doc fallback: extract readable ASCII/UTF-8 tokens
     const bytes = new Uint8Array(arrayBuffer);
     const decoded = new TextDecoder('latin1').decode(bytes);
     const readable = (decoded.match(/[A-Za-z0-9:/.,\- ]{4,}/g) || []).join(' ');
@@ -228,7 +287,6 @@ async function processWordFile(file, onProgress) {
   let text = (rawResult?.value || '').trim();
   let embeddedPreview = null;
 
-  // Also extract embedded receipt images inside the .docx
   try {
     await mammoth.convertToHtml(
       { arrayBuffer },
@@ -318,7 +376,20 @@ export function parseEgyptianReceipt(rawText = '', qrText = '', fileName = '') {
   const combined = `${rawText}\n${qrText || ''}\n${fileName}`;
   const lower = combined.toLowerCase();
 
+  const serialMatch =
+    combined.match(/(?:s\/n|serial|sn|سيريال|التسلسلي)[\s:#-]*([A-Z0-9-]{6,20})/i) ||
+    combined.match(/\b([A-Z]{2,5}[-]?[0-9]{4,}[-A-Z0-9]{2,})\b/);
+  const modelMatch =
+    combined.match(/(?:model|mod|موديل)[\s:#-]*([A-Z0-9-]{4,16})/i) ||
+    combined.match(/\b([A-Z]{1,4}[-]?[0-9]{2,}[A-Z0-9-]{1,8})\b/);
+
+  const detectedModel = modelMatch?.[1]?.toUpperCase() || '';
+  const modelLookup = detectedModel
+    ? MODEL_PREFIX_CATALOG.find((m) => m.prefix.test(detectedModel))
+    : null;
+
   const matchedBrand =
+    (modelLookup && BRAND_CATALOG.find((b) => b.brand === modelLookup.brand)) ||
     BRAND_CATALOG.find((b) => b.keys.some((k) => lower.includes(k))) || {
       brand: 'LG',
       brandAr: 'إل جي',
@@ -333,44 +404,38 @@ export function parseEgyptianReceipt(rawText = '', qrText = '', fileName = '') {
       ar: 'موزع معتمد - مصر',
     };
 
-  let category = 'washer';
-  let nameEn = `${matchedBrand.brand} Smart Home Appliance`;
-  let nameAr = `جهاز ${matchedBrand.brandAr} منزلي ذكي`;
+  let category = modelLookup?.category || 'washer';
+  let nameEn = modelLookup?.labelEn || `${matchedBrand.brand} Smart Home Appliance`;
+  let nameAr = modelLookup?.labelAr || `جهاز ${matchedBrand.brandAr} منزلي ذكي`;
 
-  if (/(ac|split|air\s?condition|inverter\s?1\.5|2\.25|تكييف|سبليت)/i.test(combined)) {
-    category = 'ac';
-    nameEn = `${matchedBrand.brand} Inverter Split AC`;
-    nameAr = `تكييف ${matchedBrand.brandAr} إنفرتر سبليت`;
-  } else if (/(fridge|refrigerator|freezer|ثلاجة|تلاجة|ديب\s?فريزر)/i.test(combined)) {
-    category = 'fridge';
-    nameEn = `${matchedBrand.brand} Digital Inverter Refrigerator`;
-    nameAr = `ثلاجة ${matchedBrand.brandAr} ديجيتال إنفرتر`;
-  } else if (/(tv|oled|qled|uhd|4k|شاشة|تلفزيون)/i.test(combined)) {
-    category = 'tv';
-    nameEn = `${matchedBrand.brand} 4K Smart TV`;
-    nameAr = `شاشة ${matchedBrand.brandAr} 4K سمارت`;
-  } else if (/(microwave|oven|cooker|ميكروويف|بوتاجاز|فرن)/i.test(combined)) {
-    category = 'kitchen';
-    nameEn = `${matchedBrand.brand} Kitchen Appliance`;
-    nameAr = `جهاز مطبخ ${matchedBrand.brandAr}`;
-  } else if (/(wash|dryer|غسالة|مجفف)/i.test(combined)) {
-    category = 'washer';
-    nameEn = `${matchedBrand.brand} Automatic Washer`;
-    nameAr = `غسالة ${matchedBrand.brandAr} أوتوماتيك`;
+  if (!modelLookup) {
+    if (/(ac|split|air\s?condition|inverter\s?1\.5|2\.25|تكييف|سبليت)/i.test(combined)) {
+      category = 'ac';
+      nameEn = `${matchedBrand.brand} Inverter Split AC`;
+      nameAr = `تكييف ${matchedBrand.brandAr} إنفرتر سبليت`;
+    } else if (/(fridge|refrigerator|freezer|ثلاجة|تلاجة|ديب\s?فريزر)/i.test(combined)) {
+      category = 'fridge';
+      nameEn = `${matchedBrand.brand} Digital Inverter Refrigerator`;
+      nameAr = `ثلاجة ${matchedBrand.brandAr} ديجيتال إنفرتر`;
+    } else if (/(tv|oled|qled|uhd|4k|شاشة|تلفزيون)/i.test(combined)) {
+      category = 'tv';
+      nameEn = `${matchedBrand.brand} 4K Smart TV`;
+      nameAr = `شاشة ${matchedBrand.brandAr} 4K سمارت`;
+    } else if (/(microwave|oven|cooker|ميكروويف|بوتاجاز|فرن)/i.test(combined)) {
+      category = 'kitchen';
+      nameEn = `${matchedBrand.brand} Kitchen Appliance`;
+      nameAr = `جهاز مطبخ ${matchedBrand.brandAr}`;
+    } else if (/(wash|dryer|غسالة|مجفف)/i.test(combined)) {
+      category = 'washer';
+      nameEn = `${matchedBrand.brand} Automatic Washer`;
+      nameAr = `غسالة ${matchedBrand.brandAr} أوتوماتيك`;
+    }
   }
-
-  // Extract model & serial patterns
-  const serialMatch =
-    combined.match(/(?:s\/n|serial|sn|سيريال|التسلسلي)[\s:#-]*([A-Z0-9-]{6,20})/i) ||
-    combined.match(/\b([A-Z]{2,5}[-]?[0-9]{4,}[-A-Z0-9]{2,})\b/);
-  const modelMatch =
-    combined.match(/(?:model|mod|موديل)[\s:#-]*([A-Z0-9-]{4,16})/i) ||
-    combined.match(/\b([A-Z]{1,4}[0-9]{2,}[A-Z0-9-]{2,8})\b/);
 
   const serial =
     serialMatch?.[1]?.toUpperCase() ||
     `${matchedBrand.brand.slice(0, 3).toUpperCase()}-EG-${Date.now().toString().slice(-6)}`;
-  const model = modelMatch?.[1]?.toUpperCase() || `${matchedBrand.brand.slice(0, 2).toUpperCase()}-2026X`;
+  const model = detectedModel || `${matchedBrand.brand.slice(0, 2).toUpperCase()}-2026X`;
 
   const purchaseDate = parseDateFromText(combined);
   let warrantyYears = 3;
@@ -379,6 +444,41 @@ export function parseEgyptianReceipt(rawText = '', qrText = '', fileName = '') {
   else if (/(\b1\s*(?:year|yr|سنة)\b)/i.test(combined)) warrantyYears = 1;
 
   const expiryDate = addYearsIso(purchaseDate, warrantyYears);
+
+  // Detect maintenance receipt clues (cost in EGP, repair keywords)
+  const costMatch = combined.match(/(\d{2,6}(?:\.\d{1,2})?)\s*(?:egp|le|l\.e|جنيه|ج\.م)/i);
+  const detectedCostEgp = costMatch ? Math.round(Number(costMatch[1])) : 0;
+  const isMaintenanceClue =
+    /(صيانة|تنظيف|فريون|كارتة|طلمبة|فلتر|تصليح|إصلاح|freon|repair|service|pcb|filter|pump)/i.test(
+      combined
+    );
+
+  let repairTitleAr = 'صيانة دورية وفحص شامل';
+  let repairTitleEn = 'Preventive Maintenance & Inspection';
+  let partAr = 'فحص فني معتمد';
+  let partEn = 'Authorized Technical Check';
+
+  if (/(فريون|freon|r410)/i.test(combined)) {
+    repairTitleAr = 'شحن فريون وفحص ضغط التبريد';
+    repairTitleEn = 'Refrigerant Top-up & Pressure Check';
+    partAr = 'فريون R410A أصلي';
+    partEn = 'Genuine R410A Refrigerant';
+  } else if (/(كارتة|pcb|board)/i.test(combined)) {
+    repairTitleAr = 'إصلاح أو استبدال الكارتة الإلكترونية';
+    repairTitleEn = 'Electronic PCB Board Service';
+    partAr = 'كارتة PCB أصلية';
+    partEn = 'Genuine PCB Module';
+  } else if (/(طلمبة|pump|صرف)/i.test(combined)) {
+    repairTitleAr = 'صيانة وتغيير طلمبة الصرف';
+    repairTitleEn = 'Drain Pump Replacement';
+    partAr = 'طلمبة صرف أصلية';
+    partEn = 'Genuine Drain Pump';
+  } else if (/(فلتر|filter)/i.test(combined)) {
+    repairTitleAr = 'تنظيف واستبدال الفلتر';
+    repairTitleEn = 'Filter Cleaning & Replacement';
+    partAr = 'فلتر أصلي';
+    partEn = 'Genuine Filter';
+  }
 
   return {
     id: `dev-scan-${Date.now()}`,
@@ -404,5 +504,11 @@ export function parseEgyptianReceipt(rawText = '', qrText = '', fileName = '') {
     status: 'active',
     maintenanceLog: [],
     qrDetected: qrText || null,
+    suggestedDocKind: isMaintenanceClue ? 'maintenance' : 'warranty',
+    detectedCostEgp,
+    repairTitleAr,
+    repairTitleEn,
+    partAr,
+    partEn,
   };
 }

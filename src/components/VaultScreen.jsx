@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ShieldCheck,
@@ -18,8 +18,17 @@ import {
   Refrigerator,
   Waves,
   Microwave,
+  Image as ImageIcon,
+  Lock,
+  Trash2,
+  Plus,
 } from 'lucide-react';
 import QrCodeSvg from './QrCodeSvg';
+import {
+  getPhotosForDevice,
+  savePhotoDoc,
+  deletePhotoDoc,
+} from '../utils/photoVault';
 
 const CategoryIcon = ({ category, className = 'w-5 h-5' }) => {
   switch (category) {
@@ -43,12 +52,58 @@ export default function VaultScreen({
   liveBanner,
   onClearBanner,
   onNavigateDiagnostics,
+  photoCounts = {},
+  onPhotoChanged,
 }) {
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [isFlipped, setIsFlipped] = useState(false);
   const [transferCode, setTransferCode] = useState(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [checkupBooked, setCheckupBooked] = useState(false);
+  const [devicePhotos, setDevicePhotos] = useState([]);
+  const [lightboxPhoto, setLightboxPhoto] = useState(null);
+  const attachInputRef = useRef(null);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedDevice?.id) {
+      setDevicePhotos([]);
+      return;
+    }
+    getPhotosForDevice(selectedDevice.id).then((list) => {
+      if (active) setDevicePhotos(list);
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectedDevice]);
+
+  const handleAttachPhotoFile = (file) => {
+    if (!file || !selectedDevice) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      await savePhotoDoc({
+        deviceId: selectedDevice.id,
+        title: file.name || t.vault.docTypeWarranty,
+        docType: 'warranty',
+        dataUrl: reader.result,
+      });
+      const updated = await getPhotosForDevice(selectedDevice.id);
+      setDevicePhotos(updated);
+      onPhotoChanged?.();
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDeletePhoto = async (photoId) => {
+    await deletePhotoDoc(photoId);
+    if (selectedDevice) {
+      const updated = await getPhotosForDevice(selectedDevice.id);
+      setDevicePhotos(updated);
+      onPhotoChanged?.();
+    }
+    if (lightboxPhoto?.id === photoId) setLightboxPhoto(null);
+  };
 
   const isAr = lang === 'ar';
 
@@ -294,7 +349,15 @@ export default function VaultScreen({
 
               <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
                 <span>{t.vault.tapCertificate}</span>
-                <span>{isAr ? device.authorizedGroupAr : device.authorizedGroupEn}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {photoCounts[device.id] > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-300">
+                      <ImageIcon className="h-3 w-3" />
+                      {photoCounts[device.id]}
+                    </span>
+                  )}
+                  <span>{isAr ? device.authorizedGroupAr : device.authorizedGroupEn}</span>
+                </div>
               </div>
             </motion.div>
           );
@@ -444,6 +507,94 @@ export default function VaultScreen({
                 </motion.button>
               </div>
 
+              {/* Encrypted Receipt & Warranty Photo Vault */}
+              <div className="mt-5 rounded-2xl border border-emerald-500/25 bg-white dark:bg-slate-900/70 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <ImageIcon className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">
+                      {t.vault.savedPhotosTitle}
+                    </h4>
+                  </div>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-300 shrink-0">
+                    <Lock className="h-2.5 w-2.5" />
+                    {t.vault.encryptedBadge}
+                  </span>
+                </div>
+
+                <input
+                  ref={attachInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    handleAttachPhotoFile(e.target.files?.[0]);
+                    e.target.value = '';
+                  }}
+                />
+
+                {devicePhotos.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                    {devicePhotos.map((photo) => (
+                      <div
+                        key={photo.id}
+                        className="group relative overflow-hidden rounded-xl border border-slate-200 dark:border-white/10 bg-slate-950"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setLightboxPhoto(photo)}
+                          className="block w-full text-start"
+                        >
+                          <img
+                            src={photo.dataUrl}
+                            alt={photo.title}
+                            className="h-24 w-full object-cover transition-transform group-hover:scale-105"
+                          />
+                          <div className="p-1.5 bg-slate-900/95 text-[10px]">
+                            <span
+                              className={`inline-block font-bold ${
+                                photo.docType === 'maintenance'
+                                  ? 'text-amber-400'
+                                  : 'text-emerald-400'
+                              }`}
+                            >
+                              {photo.docType === 'maintenance'
+                                ? t.vault.docTypeMaintenance
+                                : t.vault.docTypeWarranty}
+                            </span>
+                            <span className="block font-mono text-slate-400 text-[9px]">
+                              {photo.capturedAt}
+                            </span>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePhoto(photo.id)}
+                          className="absolute top-1.5 end-1.5 rounded-full bg-black/70 p-1 text-rose-400 hover:bg-rose-500 hover:text-white"
+                          aria-label={t.vault.deletePhoto}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {t.vault.savedPhotosEmpty}
+                  </p>
+                )}
+
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  type="button"
+                  onClick={() => attachInputRef.current?.click()}
+                  className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-emerald-500/40 bg-emerald-500/10 py-2.5 text-xs font-bold text-emerald-700 dark:text-emerald-300"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>{t.vault.attachPhotoBtn}</span>
+                </motion.button>
+              </div>
+
               {/* Device Maintenance History Log */}
               <div className="mt-5">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2.5">
@@ -539,6 +690,47 @@ export default function VaultScreen({
                 )}
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Fullscreen Photo Lightbox with Integrity Verification */}
+      <AnimatePresence>
+        {lightboxPhoto && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md p-4"
+            onClick={() => setLightboxPhoto(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-2xl rounded-2xl border border-white/15 bg-slate-950 overflow-hidden shadow-2xl"
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                <div className="text-xs">
+                  <span className="font-bold text-white block">{lightboxPhoto.title}</span>
+                  <span className="font-mono text-[10px] text-emerald-400">
+                    {t.vault.hashLabel} {lightboxPhoto.sha256} • {lightboxPhoto.capturedAt}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setLightboxPhoto(null)}
+                  className="rounded-full bg-white/10 p-1.5 text-white hover:bg-white/20"
+                  aria-label={t.vault.close}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="p-2 flex items-center justify-center bg-black max-h-[75dvh]">
+                <img
+                  src={lightboxPhoto.dataUrl}
+                  alt={lightboxPhoto.title}
+                  className="max-h-[70dvh] w-auto object-contain rounded-lg"
+                />
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
