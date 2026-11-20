@@ -17,6 +17,13 @@ import DiagnosticsScreen from './components/DiagnosticsScreen';
 import CentersScreen from './components/CentersScreen';
 import AccountB2BScreen from './components/AccountB2BScreen';
 import { savePhotoDoc, getAllPhotoCounts } from './utils/photoVault';
+import {
+  checkNeonHealth,
+  fetchCloudVault,
+  syncAllDevicesToCloud,
+  syncNewDeviceToCloud,
+  syncMaintenanceToCloud,
+} from './utils/cloudSync';
 
 const STORAGE_KEYS = {
   DEVICES: 'damanty_devices_v1',
@@ -51,6 +58,7 @@ export default function App() {
   const [liveBanner, setLiveBanner] = useState(null);
   const [diagDeviceId, setDiagDeviceId] = useState(null);
   const [photoCounts, setPhotoCounts] = useState({});
+  const [cloudStatus, setCloudStatus] = useState({ ok: false });
 
   const refreshPhotoCounts = useCallback(() => {
     getAllPhotoCounts().then(setPhotoCounts);
@@ -59,6 +67,45 @@ export default function App() {
   useEffect(() => {
     refreshPhotoCounts();
   }, [refreshPhotoCounts]);
+
+  // Initial Neon PostgreSQL cloud health & vault sync
+  useEffect(() => {
+    let active = true;
+    async function initCloudSync() {
+      const health = await checkNeonHealth();
+      if (!active) return;
+      setCloudStatus(health);
+      if (!health?.ok) return;
+
+      const cloudData = await fetchCloudVault();
+      if (!active) return;
+      if (cloudData?.devices?.length > 0) {
+        setDevices((prev) => {
+          const map = new Map();
+          cloudData.devices.forEach((d) => map.set(d.id, d));
+          prev.forEach((d) => {
+            if (!map.has(d.id)) map.set(d.id, d);
+          });
+          return Array.from(map.values());
+        });
+      } else {
+        await syncAllDevicesToCloud(devices);
+      }
+    }
+    initCloudSync();
+    return () => {
+      active = false;
+    };
+    // Run once on initial mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleManualCloudSync = async () => {
+    const res = await syncAllDevicesToCloud(devices);
+    const health = await checkNeonHealth();
+    setCloudStatus(health);
+    return Boolean(res?.ok && health?.ok);
+  };
 
   const t = TRANSLATIONS[lang] || TRANSLATIONS.ar;
   const isAr = lang === 'ar';
@@ -98,15 +145,28 @@ export default function App() {
 
   const handleAddDevice = async (newDevice, previewUrl) => {
     setDevices((prev) => [newDevice, ...prev]);
+    let savedProof = null;
     if (previewUrl) {
-      await savePhotoDoc({
+      savedProof = await savePhotoDoc({
         deviceId: newDevice.id,
         title: isAr ? newDevice.nameAr : newDevice.nameEn,
         docType: 'warranty',
         dataUrl: previewUrl,
-      }).catch(() => {});
+      }).catch(() => null);
       refreshPhotoCounts();
     }
+    syncNewDeviceToCloud(
+      newDevice,
+      savedProof
+        ? {
+            id: savedProof.id,
+            title: savedProof.title,
+            docType: savedProof.docType,
+            sha256: savedProof.sha256,
+            capturedAt: savedProof.capturedAt,
+          }
+        : null
+    );
     setLiveBanner(t.scanner.addedToast);
     setActiveTab('vault');
   };
@@ -119,15 +179,29 @@ export default function App() {
           : dev
       )
     );
+    let savedProof = null;
     if (previewUrl) {
-      await savePhotoDoc({
+      savedProof = await savePhotoDoc({
         deviceId,
         title: isAr ? logEntry.titleAr : logEntry.titleEn,
         docType: 'maintenance',
         dataUrl: previewUrl,
-      }).catch(() => {});
+      }).catch(() => null);
       refreshPhotoCounts();
     }
+    syncMaintenanceToCloud(
+      deviceId,
+      logEntry,
+      savedProof
+        ? {
+            id: savedProof.id,
+            title: savedProof.title,
+            docType: savedProof.docType,
+            sha256: savedProof.sha256,
+            capturedAt: savedProof.capturedAt,
+          }
+        : null
+    );
     setLiveBanner(t.scanner.maintAddedToast);
     setActiveTab('vault');
   };
@@ -341,6 +415,8 @@ export default function App() {
                       b2bMode={b2bMode}
                       onToggleB2B={() => setB2bMode((b) => !b)}
                       t={t}
+                      cloudStatus={cloudStatus}
+                      onManualSync={handleManualCloudSync}
                     />
                   )}
                 </motion.div>

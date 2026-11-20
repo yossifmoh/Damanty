@@ -29,6 +29,7 @@ import {
   savePhotoDoc,
   deletePhotoDoc,
 } from '../utils/photoVault';
+import { syncProofToCloud } from '../utils/cloudSync';
 
 const CategoryIcon = ({ category, className = 'w-5 h-5' }) => {
   switch (category) {
@@ -82,12 +83,21 @@ export default function VaultScreen({
     if (!file || !selectedDevice) return;
     const reader = new FileReader();
     reader.onload = async () => {
-      await savePhotoDoc({
+      const saved = await savePhotoDoc({
         deviceId: selectedDevice.id,
         title: file.name || t.vault.docTypeWarranty,
         docType: 'warranty',
         dataUrl: reader.result,
       });
+      if (saved) {
+        syncProofToCloud(selectedDevice.id, {
+          id: saved.id,
+          title: saved.title,
+          docType: saved.docType,
+          sha256: saved.sha256,
+          capturedAt: saved.capturedAt,
+        });
+      }
       const updated = await getPhotosForDevice(selectedDevice.id);
       setDevicePhotos(updated);
       onPhotoChanged?.();

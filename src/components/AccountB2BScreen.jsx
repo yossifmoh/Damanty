@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   BarChart3,
   Map,
+  Database,
+  RefreshCw,
 } from 'lucide-react';
 import { B2B_ANALYTICS } from '../data/mockData';
 import QrCodeSvg from './QrCodeSvg';
@@ -24,12 +26,28 @@ export default function AccountB2BScreen({
   b2bMode,
   onToggleB2B,
   t,
+  cloudStatus,
+  onManualSync,
 }) {
   const isAr = lang === 'ar';
   const [batchBrand, setBatchBrand] = useState('LG');
   const [batchPrefix, setBatchPrefix] = useState('F4V5-EG26');
   const [batchQty, setBatchQty] = useState(500);
   const [generatedBatch, setGeneratedBatch] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncSuccess, setSyncSuccess] = useState(false);
+
+  const handleManualSyncClick = async () => {
+    if (!onManualSync) return;
+    setSyncing(true);
+    setSyncSuccess(false);
+    const ok = await onManualSync();
+    setSyncing(false);
+    if (ok) {
+      setSyncSuccess(true);
+      setTimeout(() => setSyncSuccess(false), 3000);
+    }
+  };
 
   const handleGenerateBatch = () => {
     const batchId = `${batchBrand}-${batchPrefix}-${batchQty}-${Date.now()
@@ -104,6 +122,48 @@ export default function AccountB2BScreen({
             {theme === 'dark' ? t.account.lightMode : t.account.nightMode}
           </motion.button>
         </div>
+      </div>
+
+      {/* Neon PostgreSQL Cloud Sync Card */}
+      <div className="rounded-2xl border border-emerald-500/25 bg-white dark:bg-slate-900/75 p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-500">
+              <Database className="h-4 w-4" />
+            </div>
+            <div>
+              <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">
+                {t.account.cloudTitle}
+              </h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                {cloudStatus?.ok
+                  ? `${t.account.cloudConnected}${
+                      cloudStatus.latencyMs
+                        ? ` • ${t.account.cloudLatency} ${cloudStatus.latencyMs}ms`
+                        : ''
+                    }`
+                  : t.account.cloudOffline}
+              </p>
+            </div>
+          </div>
+          <span
+            className={`h-2.5 w-2.5 rounded-full ${
+              cloudStatus?.ok ? 'bg-emerald-500' : 'bg-amber-500'
+            }`}
+          />
+        </div>
+
+        <motion.button
+          whileTap={{ scale: 0.96 }}
+          disabled={syncing}
+          onClick={handleManualSyncClick}
+          className="w-full flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 py-2.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 disabled:opacity-60"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+          <span>
+            {syncSuccess ? t.account.cloudSyncDone : t.account.cloudSyncBtn}
+          </span>
+        </motion.button>
       </div>
 
       {/* Prominent B2B Enterprise Pitch Mode Toggle */}
