@@ -29,6 +29,7 @@ import {
   syncUpdateDeviceToCloud,
   syncDeleteDeviceToCloud,
   syncMaintenanceToCloud,
+  uploadPhotoToCloud,
 } from './utils/cloudSync';
 
 const VALID_TABS = ['vault', 'diagnostics', 'scan', 'centers', 'account'];
@@ -240,7 +241,6 @@ export default function App() {
   }, [b2bMode]);
 
   const handleAddDevice = async (newDevice, previewUrl) => {
-    setDevices((prev) => [newDevice, ...prev]);
     let savedProof = null;
     if (previewUrl) {
       savedProof = await savePhotoDoc({
@@ -251,7 +251,28 @@ export default function App() {
       }).catch(() => null);
       refreshPhotoCounts();
     }
-    syncNewDeviceToCloud(
+
+    const enrichedDevice = savedProof
+      ? {
+          ...newDevice,
+          cloudProofs: [
+            {
+              id: savedProof.id,
+              title: savedProof.title,
+              docType: savedProof.docType,
+              sha256: savedProof.sha256,
+              hasCloudBlob: true,
+              capturedAt: savedProof.capturedAt,
+            },
+          ],
+        }
+      : newDevice;
+
+    setDevices((prev) => [enrichedDevice, ...prev]);
+    setLiveBanner(t.scanner.addedToast);
+    navigateTab('vault');
+
+    await syncNewDeviceToCloud(
       newDevice,
       savedProof
         ? {
@@ -263,8 +284,18 @@ export default function App() {
           }
         : null
     );
-    setLiveBanner(t.scanner.addedToast);
-    navigateTab('vault');
+
+    if (savedProof?.dataUrl) {
+      await uploadPhotoToCloud({
+        deviceId: newDevice.id,
+        proofId: savedProof.id,
+        title: savedProof.title,
+        docType: savedProof.docType,
+        sha256: savedProof.sha256,
+        capturedAt: savedProof.capturedAt,
+        dataUrl: savedProof.dataUrl,
+      });
+    }
   };
 
   const handleUpdateDevice = (updatedDevice) => {
@@ -287,13 +318,6 @@ export default function App() {
   };
 
   const handleAddMaintenanceRecord = async (deviceId, logEntry, previewUrl) => {
-    setDevices((prev) =>
-      prev.map((dev) =>
-        dev.id === deviceId
-          ? { ...dev, maintenanceLog: [logEntry, ...(dev.maintenanceLog || [])] }
-          : dev
-      )
-    );
     let savedProof = null;
     if (previewUrl) {
       savedProof = await savePhotoDoc({
@@ -304,7 +328,34 @@ export default function App() {
       }).catch(() => null);
       refreshPhotoCounts();
     }
-    syncMaintenanceToCloud(
+
+    setDevices((prev) =>
+      prev.map((dev) =>
+        dev.id === deviceId
+          ? {
+              ...dev,
+              maintenanceLog: [logEntry, ...(dev.maintenanceLog || [])],
+              cloudProofs: savedProof
+                ? [
+                    {
+                      id: savedProof.id,
+                      title: savedProof.title,
+                      docType: savedProof.docType,
+                      sha256: savedProof.sha256,
+                      hasCloudBlob: true,
+                      capturedAt: savedProof.capturedAt,
+                    },
+                    ...(dev.cloudProofs || []),
+                  ]
+                : dev.cloudProofs,
+            }
+          : dev
+      )
+    );
+    setLiveBanner(t.scanner.maintAddedToast);
+    navigateTab('vault');
+
+    await syncMaintenanceToCloud(
       deviceId,
       logEntry,
       savedProof
@@ -317,8 +368,18 @@ export default function App() {
           }
         : null
     );
-    setLiveBanner(t.scanner.maintAddedToast);
-    navigateTab('vault');
+
+    if (savedProof?.dataUrl) {
+      await uploadPhotoToCloud({
+        deviceId,
+        proofId: savedProof.id,
+        title: savedProof.title,
+        docType: savedProof.docType,
+        sha256: savedProof.sha256,
+        capturedAt: savedProof.capturedAt,
+        dataUrl: savedProof.dataUrl,
+      });
+    }
   };
 
   const handleNavigateDiagnostics = (deviceId) => {
@@ -524,7 +585,11 @@ export default function App() {
                       onClearBanner={() => setLiveBanner(null)}
                       onNavigateDiagnostics={handleNavigateDiagnostics}
                       onNavigateScan={() => navigateTab('scan')}
-                      photoCounts={photoCounts}
+                      photoCounts={devices.reduce((acc, d) => {
+                        const cloudCount = (d.cloudProofs || []).filter((p) => p.hasCloudBlob).length;
+                        acc[d.id] = Math.max(photoCounts[d.id] || 0, cloudCount);
+                        return acc;
+                      }, {})}
                       onPhotoChanged={refreshPhotoCounts}
                       onUpdateDevice={handleUpdateDevice}
                       onDeleteDevice={handleDeleteDevice}

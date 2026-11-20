@@ -83,7 +83,7 @@ export async function syncAllDevicesToCloud(devices) {
 
 export async function syncNewDeviceToCloud(device, proof) {
   try {
-    await fetch('/api/vault', {
+    const res = await fetch('/api/vault', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -93,8 +93,9 @@ export async function syncNewDeviceToCloud(device, proof) {
         proof,
       }),
     });
+    return res.ok ? await res.json() : null;
   } catch {
-    // Offline fallback stays intact
+    return null;
   }
 }
 
@@ -132,7 +133,7 @@ export async function syncDeleteDeviceToCloud(deviceId) {
 
 export async function syncMaintenanceToCloud(deviceId, logEntry, proof) {
   try {
-    await fetch('/api/vault', {
+    const res = await fetch('/api/vault', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -143,8 +144,68 @@ export async function syncMaintenanceToCloud(deviceId, logEntry, proof) {
         proof,
       }),
     });
+    return res.ok ? await res.json() : null;
   } catch {
-    // Offline fallback stays intact
+    return null;
+  }
+}
+
+export async function uploadPhotoToCloud({
+  deviceId,
+  proofId,
+  title,
+  docType,
+  sha256,
+  capturedAt,
+  dataUrl,
+}) {
+  try {
+    const res = await fetch('/api/photos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        deviceId,
+        proofId,
+        title,
+        docType,
+        sha256,
+        capturedAt,
+        dataUrl,
+      }),
+    });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchCloudPhotoAsDataUrl(proofId) {
+  try {
+    const res = await fetch(`/api/photos?id=${encodeURIComponent(proofId)}`, {
+      credentials: 'include',
+    });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteCloudPhoto(proofId) {
+  try {
+    await fetch(`/api/photos?id=${encodeURIComponent(proofId)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+  } catch {
+    // Ignore offline error
   }
 }
 

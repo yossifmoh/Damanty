@@ -124,7 +124,7 @@ export function compressImageForVault(dataUrl, maxSide = 1280, quality = 0.82) {
   });
 }
 
-export async function savePhotoDoc({ deviceId, title, docType = 'warranty', dataUrl }) {
+export async function savePhotoDoc({ id, deviceId, title, docType = 'warranty', capturedAt, dataUrl }) {
   if (!deviceId || !dataUrl) return null;
   const compressed = await compressImageForVault(dataUrl);
   const sha256 = await computeSha256Hex(compressed);
@@ -133,11 +133,11 @@ export async function savePhotoDoc({ deviceId, title, docType = 'warranty', data
   const enc = await encryptString(key, compressed);
 
   const record = {
-    id: `photo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: id || `photo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     deviceId,
     title: title || 'Receipt Photo',
     docType,
-    capturedAt: new Date().toISOString().slice(0, 10),
+    capturedAt: capturedAt || new Date().toISOString().slice(0, 10),
     sha256,
     encrypted: enc.encrypted,
     ...(enc.encrypted

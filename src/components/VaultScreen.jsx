@@ -36,6 +36,9 @@ import {
   createTransferOnCloud,
   claimTransferOnCloud,
   bookServiceOnCloud,
+  uploadPhotoToCloud,
+  fetchCloudPhotoAsDataUrl,
+  deleteCloudPhoto,
 } from '../utils/cloudSync';
 
 const CategoryIcon = ({ category, className = 'w-5 h-5' }) => {
@@ -106,13 +109,46 @@ export default function VaultScreen({
       setDevicePhotos([]);
       return;
     }
-    getPhotosForDevice(selectedDevice.id).then((list) => {
-      if (active) setDevicePhotos(list);
-    });
+
+    async function loadPhotosAndSyncFromBlob() {
+      const localList = await getPhotosForDevice(selectedDevice.id);
+      if (!active) return;
+      setDevicePhotos(localList);
+
+      const localIds = new Set(localList.map((p) => p.id));
+      const cloudProofs = selectedDevice.cloudProofs || [];
+      const missingCloud = cloudProofs.filter(
+        (p) => p.hasCloudBlob && !localIds.has(p.id)
+      );
+
+      if (missingCloud.length === 0) return;
+
+      for (const proof of missingCloud) {
+        const dataUrl = await fetchCloudPhotoAsDataUrl(proof.id);
+        if (!active || !dataUrl) continue;
+        await savePhotoDoc({
+          id: proof.id,
+          deviceId: selectedDevice.id,
+          title: proof.title,
+          docType: proof.docType,
+          capturedAt: proof.capturedAt,
+          dataUrl,
+        }).catch(() => {});
+      }
+
+      if (!active) return;
+      const updated = await getPhotosForDevice(selectedDevice.id);
+      if (active) {
+        setDevicePhotos(updated);
+        onPhotoChanged?.();
+      }
+    }
+
+    loadPhotosAndSyncFromBlob();
     return () => {
       active = false;
     };
-  }, [selectedDevice]);
+  }, [selectedDevice, onPhotoChanged]);
 
   const handleAttachPhotoFile = (file) => {
     if (!file || !selectedDevice) return;
@@ -125,13 +161,24 @@ export default function VaultScreen({
         dataUrl: reader.result,
       });
       if (saved) {
-        syncProofToCloud(selectedDevice.id, {
-          id: saved.id,
+        const blobRes = await uploadPhotoToCloud({
+          deviceId: selectedDevice.id,
+          proofId: saved.id,
           title: saved.title,
           docType: saved.docType,
           sha256: saved.sha256,
           capturedAt: saved.capturedAt,
+          dataUrl: saved.dataUrl,
         });
+        if (!blobRes?.ok) {
+          syncProofToCloud(selectedDevice.id, {
+            id: saved.id,
+            title: saved.title,
+            docType: saved.docType,
+            sha256: saved.sha256,
+            capturedAt: saved.capturedAt,
+          });
+        }
       }
       const updated = await getPhotosForDevice(selectedDevice.id);
       setDevicePhotos(updated);
@@ -142,12 +189,13 @@ export default function VaultScreen({
 
   const handleDeletePhoto = async (photoId) => {
     await deletePhotoDoc(photoId);
+    deleteCloudPhoto(photoId);
     if (selectedDevice) {
       const updated = await getPhotosForDevice(selectedDevice.id);
       setDevicePhotos(updated);
       onPhotoChanged?.();
     }
-    if (lightboxPhoto?.id === photoId) setLightboxPhoto(null);
+    if (lightboxPhoto?.id === photoId) closeLightbox();
   };
 
   const isAr = lang === 'ar';

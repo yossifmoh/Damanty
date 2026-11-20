@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS receipt_proofs (
   title TEXT,
   doc_type TEXT,
   sha256 TEXT NOT NULL,
+  blob_pathname TEXT,
   captured_at TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
+import { del } from '@vercel/blob';
 import { getSessionFromRequest } from './_authUtils.js';
 
 function scopeId(userKey, rawId) {
@@ -63,9 +64,13 @@ async function ensureSchema(sql) {
       title TEXT,
       doc_type TEXT,
       sha256 TEXT NOT NULL,
+      blob_pathname TEXT,
       captured_at TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `;
+  await sql`
+    ALTER TABLE receipt_proofs ADD COLUMN IF NOT EXISTS blob_pathname TEXT
   `;
   await sql`
     CREATE TABLE IF NOT EXISTS warranty_transfers (
@@ -251,6 +256,7 @@ export default async function handler(req, res) {
           title: p.title,
           docType: p.doc_type,
           sha256: p.sha256,
+          hasCloudBlob: Boolean(p.blob_pathname),
           capturedAt: p.captured_at,
         });
       }
@@ -289,9 +295,18 @@ export default async function handler(req, res) {
 
       if (action === 'delete_device' && body.deviceId) {
         const scopedDevId = scopeId(userKey, body.deviceId);
+        const proofRows = await sql`
+          SELECT blob_pathname FROM receipt_proofs
+          WHERE device_id = ${scopedDevId} AND user_key = ${userKey} AND blob_pathname IS NOT NULL
+        `;
         await sql`
           DELETE FROM vault_devices WHERE id = ${scopedDevId} AND user_key = ${userKey}
         `;
+        for (const p of proofRows) {
+          if (p.blob_pathname) {
+            await del(p.blob_pathname).catch(() => {});
+          }
+        }
         return res.status(200).json({ ok: true });
       }
 
