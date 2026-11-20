@@ -19,7 +19,6 @@ import AccountB2BScreen from './components/AccountB2BScreen';
 import { savePhotoDoc, getAllPhotoCounts } from './utils/photoVault';
 import {
   getSessionUser,
-  checkNeonHealth,
   fetchCloudVault,
   syncAllDevicesToCloud,
   syncNewDeviceToCloud,
@@ -59,7 +58,6 @@ export default function App() {
   const [liveBanner, setLiveBanner] = useState(null);
   const [diagDeviceId, setDiagDeviceId] = useState(null);
   const [photoCounts, setPhotoCounts] = useState({});
-  const [cloudStatus, setCloudStatus] = useState({ ok: false });
   const [user, setUser] = useState(null);
 
   const getDevicesStorageKey = useCallback((usr) => {
@@ -74,16 +72,12 @@ export default function App() {
     refreshPhotoCounts();
   }, [refreshPhotoCounts]);
 
-  // Initial session + Neon PostgreSQL cloud health & vault sync
+  // Initial session + silent background Neon PostgreSQL sync
   useEffect(() => {
     let active = true;
     async function initCloudSync() {
-      const [sessionUser, health] = await Promise.all([
-        getSessionUser(),
-        checkNeonHealth(),
-      ]);
+      const sessionUser = await getSessionUser();
       if (!active) return;
-      setCloudStatus(health);
       setUser(sessionUser);
 
       if (sessionUser) {
@@ -96,7 +90,6 @@ export default function App() {
         }
       }
 
-      if (!health?.ok) return;
       const cloudData = await fetchCloudVault();
       if (!active) return;
 
@@ -161,13 +154,6 @@ export default function App() {
         : `Signed in as ${newUser.name}`
     );
     setActiveTab('vault');
-  };
-
-  const handleManualCloudSync = async () => {
-    const res = await syncAllDevicesToCloud(devices);
-    const health = await checkNeonHealth();
-    setCloudStatus(health);
-    return Boolean(res?.ok && health?.ok);
   };
 
   const t = TRANSLATIONS[lang] || TRANSLATIONS.ar;
@@ -505,8 +491,6 @@ export default function App() {
                       b2bMode={b2bMode}
                       onToggleB2B={() => setB2bMode((b) => !b)}
                       t={t}
-                      cloudStatus={cloudStatus}
-                      onManualSync={handleManualCloudSync}
                       user={user}
                       onAuthChanged={handleAuthChanged}
                     />
