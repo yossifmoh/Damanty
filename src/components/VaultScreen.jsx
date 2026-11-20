@@ -83,7 +83,7 @@ export default function VaultScreen({
   };
 
   return (
-    <div className="space-y-4 pb-28">
+    <div className="space-y-4 pb-28 md:pb-10">
       {/* Interactive Dynamic Header Pill */}
       <motion.div
         layout
@@ -196,7 +196,7 @@ export default function VaultScreen({
       )}
 
       {/* Device Warranty Cards */}
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
         {devices.map((device, index) => {
           const isExpiring = device.status === 'expiring_soon';
           return (
@@ -308,7 +308,7 @@ export default function VaultScreen({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/70 backdrop-blur-sm md:p-4"
             onClick={() => setSelectedDevice(null)}
           >
             <motion.div
@@ -317,7 +317,7 @@ export default function VaultScreen({
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-[430px] max-h-[90dvh] overflow-y-auto no-scrollbar rounded-t-3xl border-t border-white/15 bg-slate-50 dark:bg-[#0b1120] p-5 pb-safe shadow-2xl"
+              className="w-full max-w-[430px] md:max-w-xl max-h-[90dvh] overflow-y-auto no-scrollbar rounded-t-3xl md:rounded-3xl border border-white/15 bg-slate-50 dark:bg-[#0b1120] p-5 pb-safe shadow-2xl"
             >
               {/* Drag Handle & Close */}
               <div className="flex items-center justify-between mb-4">

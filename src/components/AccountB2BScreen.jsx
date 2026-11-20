@@ -39,7 +39,7 @@ export default function AccountB2BScreen({
   };
 
   return (
-    <div className="space-y-4 pb-28">
+    <div className="space-y-4 pb-28 md:pb-10">
       <div>
         <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
           {t.account.title}
@@ -166,7 +166,7 @@ export default function AccountB2BScreen({
             </div>
 
             {/* Executive KPIs */}
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
               <div className="rounded-2xl border border-emerald-500/30 bg-white dark:bg-slate-900/80 p-3.5">
                 <div className="flex items-center justify-between text-emerald-500">
                   <TrendingDown className="h-4 w-4" />

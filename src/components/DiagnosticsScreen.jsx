@@ -58,7 +58,7 @@ export default function DiagnosticsScreen({
   const completedCount = activeGuide.steps.filter((s) => checkedSteps[s.id]).length;
 
   return (
-    <div className="space-y-4 pb-28">
+    <div className="space-y-4 pb-28 md:pb-10">
       <div>
         <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
           {t.diagnostics.title}
@@ -244,7 +244,7 @@ export default function DiagnosticsScreen({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/70 backdrop-blur-sm md:p-4"
             onClick={() => setBookingOpen(false)}
           >
             <motion.div
@@ -253,7 +253,7 @@ export default function DiagnosticsScreen({
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-[430px] rounded-t-3xl border-t border-white/15 bg-white dark:bg-[#0b1120] p-5 pb-safe space-y-4"
+              className="w-full max-w-[430px] md:max-w-lg rounded-t-3xl md:rounded-3xl border border-white/15 bg-white dark:bg-[#0b1120] p-5 pb-safe space-y-4"
             >
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">

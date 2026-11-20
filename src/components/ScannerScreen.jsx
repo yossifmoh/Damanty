@@ -47,7 +47,7 @@ export default function ScannerScreen({ lang, t, onAddDevice }) {
   };
 
   return (
-    <div className="space-y-4 pb-28">
+    <div className="space-y-4 pb-28 md:pb-10">
       <div>
         <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
           {t.scanner.title}

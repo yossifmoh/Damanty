@@ -40,7 +40,7 @@ export default function CentersScreen({ lang, t }) {
   });
 
   return (
-    <div className="space-y-4 pb-28">
+    <div className="space-y-4 pb-28 md:pb-10">
       <div>
         <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
           {t.centers.title}
@@ -110,7 +110,7 @@ export default function CentersScreen({ lang, t }) {
       </div>
 
       {/* Service Center Cards */}
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
         {filtered.map((center) => (
           <motion.div
             key={center.id}
