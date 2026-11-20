@@ -16,14 +16,32 @@ import ScannerScreen from './components/ScannerScreen';
 import DiagnosticsScreen from './components/DiagnosticsScreen';
 import CentersScreen from './components/CentersScreen';
 import AccountB2BScreen from './components/AccountB2BScreen';
-import { savePhotoDoc, getAllPhotoCounts } from './utils/photoVault';
+import {
+  savePhotoDoc,
+  getAllPhotoCounts,
+  deletePhotosForDevice,
+} from './utils/photoVault';
 import {
   getSessionUser,
   fetchCloudVault,
   syncAllDevicesToCloud,
   syncNewDeviceToCloud,
+  syncUpdateDeviceToCloud,
+  syncDeleteDeviceToCloud,
   syncMaintenanceToCloud,
 } from './utils/cloudSync';
+
+const VALID_TABS = ['vault', 'diagnostics', 'scan', 'centers', 'account'];
+
+function getInitialTabFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get('tab');
+    return VALID_TABS.includes(t) ? t : 'vault';
+  } catch {
+    return 'vault';
+  }
+}
 
 const STORAGE_KEYS = {
   DEVICES: 'damanty_devices_v1',
@@ -54,11 +72,40 @@ export default function App() {
     return localStorage.getItem(STORAGE_KEYS.B2B) === 'true';
   });
 
-  const [activeTab, setActiveTab] = useState('vault');
+  const [activeTab, setActiveTab] = useState(getInitialTabFromUrl);
   const [liveBanner, setLiveBanner] = useState(null);
   const [diagDeviceId, setDiagDeviceId] = useState(null);
   const [photoCounts, setPhotoCounts] = useState({});
   const [user, setUser] = useState(null);
+
+  // Sync browser History API so phone/browser Back navigates tabs & modals instead of closing app
+  useEffect(() => {
+    const initial = getInitialTabFromUrl();
+    const url = initial === 'vault' ? window.location.pathname : `?tab=${initial}`;
+    window.history.replaceState({ tab: initial, modal: null }, '', url);
+
+    const onPopState = (e) => {
+      const nextTab = e.state?.tab;
+      if (VALID_TABS.includes(nextTab)) {
+        setActiveTab(nextTab);
+      } else {
+        setActiveTab(getInitialTabFromUrl());
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const navigateTab = useCallback(
+    (nextTab) => {
+      if (!VALID_TABS.includes(nextTab)) return;
+      if (nextTab === activeTab && !window.history.state?.modal) return;
+      const url = nextTab === 'vault' ? window.location.pathname : `?tab=${nextTab}`;
+      window.history.pushState({ tab: nextTab, modal: null }, '', url);
+      setActiveTab(nextTab);
+    },
+    [activeTab]
+  );
 
   const getDevicesStorageKey = useCallback((usr) => {
     return usr?.id ? `damanty_devices_${usr.id}` : STORAGE_KEYS.DEVICES;
@@ -132,7 +179,7 @@ export default function App() {
           ? `أهلاً بك يا ${newUser.name}! خزنتك الشخصية جاهزة الآن.`
           : `Welcome, ${newUser.name}! Your private vault is ready.`
       );
-      setActiveTab('vault');
+      navigateTab('vault');
       return;
     }
 
@@ -153,7 +200,7 @@ export default function App() {
         ? `تم تسجيل الدخول باسم ${newUser.name}`
         : `Signed in as ${newUser.name}`
     );
-    setActiveTab('vault');
+    navigateTab('vault');
   };
 
   const t = TRANSLATIONS[lang] || TRANSLATIONS.ar;
@@ -217,7 +264,26 @@ export default function App() {
         : null
     );
     setLiveBanner(t.scanner.addedToast);
-    setActiveTab('vault');
+    navigateTab('vault');
+  };
+
+  const handleUpdateDevice = (updatedDevice) => {
+    setDevices((prev) =>
+      prev.map((d) => (d.id === updatedDevice.id ? updatedDevice : d))
+    );
+    syncUpdateDeviceToCloud(updatedDevice);
+  };
+
+  const handleDeleteDevice = async (deviceId) => {
+    setDevices((prev) => prev.filter((d) => d.id !== deviceId));
+    await deletePhotosForDevice(deviceId);
+    refreshPhotoCounts();
+    syncDeleteDeviceToCloud(deviceId);
+  };
+
+  const handleClaimedDevice = (claimedDevice) => {
+    setDevices((prev) => [claimedDevice, ...prev]);
+    setLiveBanner(t.vault.claimSuccess);
   };
 
   const handleAddMaintenanceRecord = async (deviceId, logEntry, previewUrl) => {
@@ -252,12 +318,12 @@ export default function App() {
         : null
     );
     setLiveBanner(t.scanner.maintAddedToast);
-    setActiveTab('vault');
+    navigateTab('vault');
   };
 
   const handleNavigateDiagnostics = (deviceId) => {
     setDiagDeviceId(deviceId);
-    setActiveTab('diagnostics');
+    navigateTab('diagnostics');
   };
 
   return (
@@ -303,32 +369,32 @@ export default function App() {
             <nav className="space-y-1.5">
               <SidebarItem
                 active={activeTab === 'vault'}
-                onClick={() => setActiveTab('vault')}
+                onClick={() => navigateTab('vault')}
                 icon={<ShieldCheck className="h-5 w-5" />}
                 label={t.tabs.vault}
               />
               <SidebarItem
                 active={activeTab === 'scan'}
-                onClick={() => setActiveTab('scan')}
+                onClick={() => navigateTab('scan')}
                 icon={<ScanLine className="h-5 w-5" />}
                 label={t.tabs.scan}
                 highlight
               />
               <SidebarItem
                 active={activeTab === 'diagnostics'}
-                onClick={() => setActiveTab('diagnostics')}
+                onClick={() => navigateTab('diagnostics')}
                 icon={<Wrench className="h-5 w-5" />}
                 label={t.tabs.diagnostics}
               />
               <SidebarItem
                 active={activeTab === 'centers'}
-                onClick={() => setActiveTab('centers')}
+                onClick={() => navigateTab('centers')}
                 icon={<MapPin className="h-5 w-5" />}
                 label={t.tabs.centers}
               />
               <SidebarItem
                 active={activeTab === 'account'}
-                onClick={() => setActiveTab('account')}
+                onClick={() => navigateTab('account')}
                 icon={<UserCircle2 className="h-5 w-5" />}
                 label={t.tabs.account}
               />
@@ -338,7 +404,7 @@ export default function App() {
           {/* Desktop Quick Toggles & Account Status */}
           <div className="space-y-2.5 pt-4 border-t border-slate-200/70 dark:border-white/10">
             <button
-              onClick={() => setActiveTab('account')}
+              onClick={() => navigateTab('account')}
               className="w-full flex items-center justify-between gap-2 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-900/70 px-3 py-2 text-start hover:border-emerald-500/40 transition-colors"
             >
               <div className="flex items-center gap-2 min-w-0">
@@ -407,7 +473,7 @@ export default function App() {
             <div className="flex items-center gap-1.5">
               <motion.button
                 whileTap={{ scale: 0.92 }}
-                onClick={() => setActiveTab('account')}
+                onClick={() => navigateTab('account')}
                 className="inline-flex items-center gap-1 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 max-w-[96px]"
               >
                 <UserCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
@@ -457,9 +523,12 @@ export default function App() {
                       liveBanner={liveBanner}
                       onClearBanner={() => setLiveBanner(null)}
                       onNavigateDiagnostics={handleNavigateDiagnostics}
-                      onNavigateScan={() => setActiveTab('scan')}
+                      onNavigateScan={() => navigateTab('scan')}
                       photoCounts={photoCounts}
                       onPhotoChanged={refreshPhotoCounts}
+                      onUpdateDevice={handleUpdateDevice}
+                      onDeleteDevice={handleDeleteDevice}
+                      onClaimedDevice={handleClaimedDevice}
                     />
                   )}
                   {activeTab === 'diagnostics' && (
@@ -505,13 +574,13 @@ export default function App() {
             <div className="pointer-events-auto relative mx-auto flex items-center justify-between rounded-3xl border border-slate-200/80 dark:border-white/15 bg-white/90 dark:bg-slate-900/90 backdrop-blur-2xl px-2 py-2 shadow-2xl shadow-black/25">
               <NavTab
                 active={activeTab === 'vault'}
-                onClick={() => setActiveTab('vault')}
+                onClick={() => navigateTab('vault')}
                 icon={<ShieldCheck className="h-5 w-5" />}
                 label={t.tabs.vault}
               />
               <NavTab
                 active={activeTab === 'diagnostics'}
-                onClick={() => setActiveTab('diagnostics')}
+                onClick={() => navigateTab('diagnostics')}
                 icon={<Wrench className="h-5 w-5" />}
                 label={t.tabs.diagnostics}
               />
@@ -520,7 +589,7 @@ export default function App() {
               <div className="relative -mt-8 flex flex-col items-center">
                 <motion.button
                   whileTap={{ scale: 0.92 }}
-                  onClick={() => setActiveTab('scan')}
+                  onClick={() => navigateTab('scan')}
                   className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-slate-950 shadow-xl shadow-emerald-500/40 border-4 border-[#f8fafc] dark:border-[#060913] ${
                     activeTab === 'scan' ? 'ring-2 ring-emerald-400' : ''
                   }`}
@@ -535,13 +604,13 @@ export default function App() {
 
               <NavTab
                 active={activeTab === 'centers'}
-                onClick={() => setActiveTab('centers')}
+                onClick={() => navigateTab('centers')}
                 icon={<MapPin className="h-5 w-5" />}
                 label={t.tabs.centers}
               />
               <NavTab
                 active={activeTab === 'account'}
-                onClick={() => setActiveTab('account')}
+                onClick={() => navigateTab('account')}
                 icon={<UserCircle2 className="h-5 w-5" />}
                 label={t.tabs.account}
               />
@@ -584,7 +653,7 @@ function NavTab({ active, onClick, icon, label }) {
       }`}
     >
       {icon}
-      <span className="text-[10px] font-bold leading-tight truncate max-w-[66px]">
+      <span className="text-[10px] font-bold leading-tight truncate max-w-[74px]">
         {label}
       </span>
     </motion.button>

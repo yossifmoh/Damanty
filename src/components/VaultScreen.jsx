@@ -22,6 +22,8 @@ import {
   Lock,
   Trash2,
   Plus,
+  Pencil,
+  KeyRound,
 } from 'lucide-react';
 import QrCodeSvg from './QrCodeSvg';
 import {
@@ -29,7 +31,12 @@ import {
   savePhotoDoc,
   deletePhotoDoc,
 } from '../utils/photoVault';
-import { syncProofToCloud } from '../utils/cloudSync';
+import {
+  syncProofToCloud,
+  createTransferOnCloud,
+  claimTransferOnCloud,
+  bookServiceOnCloud,
+} from '../utils/cloudSync';
 
 const CategoryIcon = ({ category, className = 'w-5 h-5' }) => {
   switch (category) {
@@ -56,15 +63,42 @@ export default function VaultScreen({
   onNavigateScan,
   photoCounts = {},
   onPhotoChanged,
+  onUpdateDevice,
+  onDeleteDevice,
+  onClaimedDevice,
 }) {
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [isFlipped, setIsFlipped] = useState(false);
   const [transferCode, setTransferCode] = useState(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [checkupBooked, setCheckupBooked] = useState(false);
+  const [checkupTicket, setCheckupTicket] = useState('');
   const [devicePhotos, setDevicePhotos] = useState([]);
   const [lightboxPhoto, setLightboxPhoto] = useState(null);
+  const [editingDevice, setEditingDevice] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [claimCode, setClaimCode] = useState('');
+  const [claimError, setClaimError] = useState('');
+  const [claimLoading, setClaimLoading] = useState(false);
   const attachInputRef = useRef(null);
+
+  // Sync browser Back button with open modals & lightbox
+  useEffect(() => {
+    const onPopState = (e) => {
+      const modal = e.state?.modal;
+      if (modal === 'lightbox') return;
+      setLightboxPhoto(null);
+      if (modal === 'cert') return;
+      setSelectedDevice(null);
+      setEditingDevice(null);
+      setConfirmDelete(false);
+      if (modal === 'claim') return;
+      setClaimOpen(false);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -133,12 +167,108 @@ export default function VaultScreen({
     setIsFlipped(false);
     setTransferCode(null);
     setCopiedCode(false);
+    setEditingDevice(null);
+    setConfirmDelete(false);
+    if (window.history.state?.modal !== 'cert') {
+      window.history.pushState(
+        { ...(window.history.state || { tab: 'vault' }), modal: 'cert' },
+        ''
+      );
+    }
   };
 
-  const handleGenerateTransfer = () => {
+  const closeCertificate = () => {
+    if (window.history.state?.modal === 'cert' || window.history.state?.modal === 'lightbox') {
+      window.history.back();
+    } else {
+      setSelectedDevice(null);
+      setEditingDevice(null);
+      setConfirmDelete(false);
+    }
+  };
+
+  const openLightbox = (photo) => {
+    setLightboxPhoto(photo);
+    if (window.history.state?.modal !== 'lightbox') {
+      window.history.pushState(
+        { ...(window.history.state || { tab: 'vault' }), modal: 'lightbox' },
+        ''
+      );
+    }
+  };
+
+  const closeLightbox = () => {
+    if (window.history.state?.modal === 'lightbox') {
+      window.history.back();
+    } else {
+      setLightboxPhoto(null);
+    }
+  };
+
+  const openClaimModal = () => {
+    setClaimCode('');
+    setClaimError('');
+    setClaimOpen(true);
+    if (window.history.state?.modal !== 'claim') {
+      window.history.pushState(
+        { ...(window.history.state || { tab: 'vault' }), modal: 'claim' },
+        ''
+      );
+    }
+  };
+
+  const closeClaimModal = () => {
+    if (window.history.state?.modal === 'claim') {
+      window.history.back();
+    } else {
+      setClaimOpen(false);
+    }
+  };
+
+  const handleGenerateTransfer = async () => {
     if (!selectedDevice) return;
     const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-    setTransferCode(`DM-TR-${selectedDevice.brand.slice(0, 2).toUpperCase()}-${rand}`);
+    const code = `DM-TR-${selectedDevice.brand.slice(0, 2).toUpperCase()}-${rand}`;
+    setTransferCode(code);
+    await createTransferOnCloud(selectedDevice.id, code);
+  };
+
+  const handleClaimSubmit = async (e) => {
+    e.preventDefault();
+    if (!claimCode.trim()) return;
+    setClaimError('');
+    setClaimLoading(true);
+    const res = await claimTransferOnCloud(claimCode.trim());
+    setClaimLoading(false);
+    if (!res?.ok || !res.device) {
+      if (res?.error === 'TRANSFER_ALREADY_CLAIMED') {
+        setClaimError(t.vault.claimAlreadyUsed);
+      } else {
+        setClaimError(t.vault.claimNotFound);
+      }
+      return;
+    }
+    onClaimedDevice?.(res.device);
+    closeClaimModal();
+  };
+
+  const handleSaveEdit = (e) => {
+    e.preventDefault();
+    if (!editingDevice) return;
+    onUpdateDevice?.(editingDevice);
+    setSelectedDevice(editingDevice);
+    setEditingDevice(null);
+  };
+
+  const handleDeleteClick = () => {
+    if (!selectedDevice) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    const id = selectedDevice.id;
+    closeCertificate();
+    onDeleteDevice?.(id);
   };
 
   const handleCopyTransfer = () => {
@@ -177,8 +307,16 @@ export default function VaultScreen({
             </div>
           </div>
 
-          <div className="text-end">
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+          <div className="flex items-center gap-2 text-end">
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={openClaimModal}
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300"
+            >
+              <KeyRound className="h-3 w-3" />
+              <span>{t.vault.claimTransferOpen}</span>
+            </motion.button>
+            <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
               <Sparkles className="h-3 w-3 text-amber-500" />
               {t.appName}
             </span>
@@ -240,13 +378,23 @@ export default function VaultScreen({
               <div className="mt-3 flex flex-wrap gap-2">
                 <motion.button
                   whileTap={{ scale: 0.96 }}
-                  onClick={() => setCheckupBooked(true)}
+                  onClick={async () => {
+                    if (checkupBooked) return;
+                    const res = await bookServiceOnCloud({
+                      deviceId: expiringDevice.id,
+                      deviceSerial: expiringDevice.serial,
+                      bookingType: 'preventive_checkup',
+                      hotline: expiringDevice.hotline,
+                    });
+                    setCheckupTicket(res?.ticketId || '');
+                    setCheckupBooked(true);
+                  }}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 px-3.5 py-2 text-xs font-bold text-slate-950 shadow-md shadow-amber-500/20"
                 >
                   {checkupBooked ? (
                     <>
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      {t.vault.checkupBooked}
+                      {t.vault.checkupBooked} {checkupTicket ? `(#${checkupTicket})` : ''}
                     </>
                   ) : (
                     <>
@@ -411,7 +559,7 @@ export default function VaultScreen({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/70 backdrop-blur-sm md:p-4"
-            onClick={() => setSelectedDevice(null)}
+            onClick={closeCertificate}
           >
             <motion.div
               initial={{ y: '100%' }}
@@ -423,16 +571,102 @@ export default function VaultScreen({
             >
               {/* Drag Handle & Close */}
               <div className="flex items-center justify-between mb-4">
-                <div className="w-8" />
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditingDevice(
+                        editingDevice ? null : { ...selectedDevice }
+                      )
+                    }
+                    className="rounded-full bg-slate-200/80 dark:bg-slate-800 p-1.5 text-slate-600 dark:text-slate-300 hover:text-emerald-500"
+                    aria-label={t.vault.editDeviceBtn}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteClick}
+                    className={`rounded-full px-2 py-1.5 text-[10px] font-bold inline-flex items-center gap-1 ${
+                      confirmDelete
+                        ? 'bg-rose-500 text-white'
+                        : 'bg-slate-200/80 dark:bg-slate-800 text-rose-500'
+                    }`}
+                    aria-label={t.vault.deleteDeviceBtn}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    {confirmDelete && <span>{t.vault.deleteDeviceBtn}</span>}
+                  </button>
+                </div>
                 <div className="h-1.5 w-12 rounded-full bg-slate-300 dark:bg-slate-700" />
                 <button
-                  onClick={() => setSelectedDevice(null)}
+                  onClick={closeCertificate}
                   className="rounded-full bg-slate-200/80 dark:bg-slate-800 p-1.5 text-slate-600 dark:text-slate-300"
                   aria-label={t.vault.close}
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
+
+              {confirmDelete && (
+                <p className="mb-3 text-center text-[11px] font-bold text-rose-500">
+                  {t.vault.confirmDeleteMsg}
+                </p>
+              )}
+
+              {/* Inline Edit Device Form */}
+              {editingDevice && (
+                <form
+                  onSubmit={handleSaveEdit}
+                  className="mb-4 rounded-2xl border border-emerald-500/30 bg-white dark:bg-slate-900 p-3.5 text-xs space-y-2.5"
+                >
+                  <input
+                    type="text"
+                    required
+                    value={isAr ? editingDevice.nameAr : editingDevice.nameEn}
+                    onChange={(e) =>
+                      setEditingDevice((prev) => ({
+                        ...prev,
+                        [isAr ? 'nameAr' : 'nameEn']: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 font-bold text-slate-900 dark:text-white"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={editingDevice.model}
+                      onChange={(e) =>
+                        setEditingDevice((prev) => ({ ...prev, model: e.target.value }))
+                      }
+                      className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 font-mono text-slate-900 dark:text-white"
+                    />
+                    <input
+                      type="text"
+                      value={editingDevice.serial}
+                      onChange={(e) =>
+                        setEditingDevice((prev) => ({ ...prev, serial: e.target.value }))
+                      }
+                      className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 font-mono text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      className="flex-1 rounded-xl bg-emerald-500 py-2 font-extrabold text-slate-950"
+                    >
+                      {t.vault.saveEditBtn}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingDevice(null)}
+                      className="rounded-xl bg-slate-200 dark:bg-slate-800 px-3 py-2 font-bold text-slate-700 dark:text-slate-200"
+                    >
+                      {t.vault.cancelEditBtn}
+                    </button>
+                  </div>
+                </form>
+              )}
 
               {/* 3D Flippable Card */}
               <div
@@ -581,7 +815,7 @@ export default function VaultScreen({
                       >
                         <button
                           type="button"
-                          onClick={() => setLightboxPhoto(photo)}
+                          onClick={() => openLightbox(photo)}
                           className="block w-full text-start"
                         >
                           <img
@@ -741,7 +975,7 @@ export default function VaultScreen({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md p-4"
-            onClick={() => setLightboxPhoto(null)}
+            onClick={closeLightbox}
           >
             <div
               onClick={(e) => e.stopPropagation()}
@@ -755,7 +989,7 @@ export default function VaultScreen({
                   </span>
                 </div>
                 <button
-                  onClick={() => setLightboxPhoto(null)}
+                  onClick={closeLightbox}
                   className="rounded-full bg-white/10 p-1.5 text-white hover:bg-white/20"
                   aria-label={t.vault.close}
                 >
@@ -770,6 +1004,61 @@ export default function VaultScreen({
                 />
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Claim Warranty Transfer Code Modal */}
+      <AnimatePresence>
+        {claimOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/70 backdrop-blur-sm md:p-4"
+            onClick={closeClaimModal}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-[430px] md:max-w-md rounded-t-3xl md:rounded-3xl border border-white/15 bg-white dark:bg-[#0b1120] p-5 pb-safe space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                  {t.vault.claimTransferTitle}
+                </h3>
+                <button
+                  onClick={closeClaimModal}
+                  className="rounded-full bg-slate-100 dark:bg-slate-800 p-1.5"
+                >
+                  <X className="h-4 w-4 text-slate-500" />
+                </button>
+              </div>
+              <form onSubmit={handleClaimSubmit} className="space-y-3 text-xs">
+                <input
+                  type="text"
+                  required
+                  value={claimCode}
+                  onChange={(e) => setClaimCode(e.target.value)}
+                  placeholder={t.vault.claimTransferPlaceholder}
+                  className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-3 py-3 font-mono font-bold uppercase text-slate-900 dark:text-white"
+                />
+                {claimError && (
+                  <p className="text-[11px] font-semibold text-rose-500">{claimError}</p>
+                )}
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  type="submit"
+                  disabled={claimLoading}
+                  className="w-full rounded-xl bg-emerald-500 py-3 font-extrabold text-slate-950 disabled:opacity-60"
+                >
+                  {claimLoading ? '...' : t.vault.claimTransferBtn}
+                </motion.button>
+              </form>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

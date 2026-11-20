@@ -25,6 +25,7 @@ import {
   detectQrFromCanvas,
   detectQrFromDataUrl,
 } from '../utils/receiptScanner';
+import { reportFraudOnCloud } from '../utils/cloudSync';
 
 function computeExpiryAndDays(purchaseDate, years) {
   const base = new Date(`${purchaseDate}T00:00:00`);
@@ -965,7 +966,13 @@ export default function ScannerScreen({
                     )}
                     <motion.button
                       whileTap={{ scale: 0.96 }}
-                      onClick={() => setReported(true)}
+                      onClick={async () => {
+                        await reportFraudOnCloud({
+                          qrPayload: antiFakeResult.payload,
+                          notes: 'Reported via Damanty Anti-Counterfeit Scanner',
+                        });
+                        setReported(true);
+                      }}
                       className="w-full rounded-xl bg-rose-500 py-2.5 text-xs font-bold text-white"
                     >
                       {reported ? t.scanner.reported : t.scanner.reportFraud}

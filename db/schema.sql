@@ -65,3 +65,31 @@ CREATE TABLE IF NOT EXISTS receipt_proofs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_proofs_device ON receipt_proofs(device_id);
+
+CREATE TABLE IF NOT EXISTS warranty_transfers (
+  code TEXT PRIMARY KEY,
+  scoped_device_id TEXT NOT NULL,
+  from_user_key TEXT NOT NULL,
+  claimed_by_user_key TEXT,
+  status TEXT DEFAULT 'pending',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS service_bookings (
+  id TEXT PRIMARY KEY,
+  user_key TEXT NOT NULL,
+  device_id TEXT,
+  device_serial TEXT,
+  booking_type TEXT,
+  hotline TEXT,
+  status TEXT DEFAULT 'confirmed',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS fraud_reports (
+  id TEXT PRIMARY KEY,
+  user_key TEXT NOT NULL,
+  qr_payload TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);

@@ -222,3 +222,25 @@ export async function deletePhotoDoc(id) {
     // Ignore errors
   }
 }
+
+export async function deletePhotosForDevice(deviceId) {
+  if (!deviceId) return;
+  try {
+    const db = await openVaultDb();
+    await new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const index = store.index('deviceId');
+      const req = index.getAllKeys(deviceId);
+      req.onsuccess = () => {
+        for (const key of req.result || []) {
+          store.delete(key);
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {
+    // Ignore errors
+  }
+}

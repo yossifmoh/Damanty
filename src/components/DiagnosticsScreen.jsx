@@ -10,6 +10,7 @@ import {
   PhoneCall,
 } from 'lucide-react';
 import { TROUBLESHOOTING_GUIDES } from '../data/mockData';
+import { bookServiceOnCloud } from '../utils/cloudSync';
 
 export default function DiagnosticsScreen({
   devices,
@@ -26,6 +27,52 @@ export default function DiagnosticsScreen({
   const [resolved, setResolved] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
+  const [ticketId, setTicketId] = useState('');
+  const [bookingLoading, setBookingLoading] = useState(false);
+
+  useEffect(() => {
+    const onPopState = (e) => {
+      if (!e.state?.modal) {
+        setBookingOpen(false);
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const openBookingSheet = () => {
+    setBookingConfirmed(false);
+    setTicketId('');
+    setBookingOpen(true);
+    if (window.history.state?.modal !== 'diag_booking') {
+      window.history.pushState(
+        { ...(window.history.state || { tab: 'diagnostics' }), modal: 'diag_booking' },
+        ''
+      );
+    }
+  };
+
+  const closeBookingSheet = () => {
+    if (window.history.state?.modal === 'diag_booking') {
+      window.history.back();
+    } else {
+      setBookingOpen(false);
+    }
+  };
+
+  const handleConfirmBooking = async () => {
+    if (!activeDevice) return;
+    setBookingLoading(true);
+    const res = await bookServiceOnCloud({
+      deviceId: activeDevice.id,
+      deviceSerial: activeDevice.serial,
+      bookingType: 'technician',
+      hotline: activeDevice.hotline,
+    });
+    setTicketId(res?.ticketId || 'DM-8942');
+    setBookingConfirmed(true);
+    setBookingLoading(false);
+  };
 
   useEffect(() => {
     if (preselectedDeviceId) {
@@ -218,10 +265,7 @@ export default function DiagnosticsScreen({
                 {t.diagnostics.stillBroken}
               </span>
               <button
-                onClick={() => {
-                  setBookingConfirmed(false);
-                  setBookingOpen(true);
-                }}
+                onClick={openBookingSheet}
                 className="inline-flex items-center gap-1 text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline"
               >
                 <Wrench className="h-3.5 w-3.5" />
@@ -245,7 +289,7 @@ export default function DiagnosticsScreen({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/70 backdrop-blur-sm md:p-4"
-            onClick={() => setBookingOpen(false)}
+            onClick={closeBookingSheet}
           >
             <motion.div
               initial={{ y: '100%' }}
@@ -260,7 +304,7 @@ export default function DiagnosticsScreen({
                   {t.diagnostics.bookingTitle}
                 </h3>
                 <button
-                  onClick={() => setBookingOpen(false)}
+                  onClick={closeBookingSheet}
                   className="rounded-full bg-slate-100 dark:bg-slate-800 p-1.5"
                 >
                   <X className="h-4 w-4 text-slate-500" />
@@ -306,16 +350,19 @@ export default function DiagnosticsScreen({
               {!bookingConfirmed ? (
                 <motion.button
                   whileTap={{ scale: 0.96 }}
-                  onClick={() => setBookingConfirmed(true)}
-                  className="w-full rounded-xl bg-emerald-500 py-3.5 text-xs font-extrabold text-slate-950 shadow-lg shadow-emerald-500/25"
+                  disabled={bookingLoading}
+                  onClick={handleConfirmBooking}
+                  className="w-full rounded-xl bg-emerald-500 py-3.5 text-xs font-extrabold text-slate-950 shadow-lg shadow-emerald-500/25 disabled:opacity-60"
                 >
-                  {t.diagnostics.confirmBooking}
+                  {bookingLoading ? '...' : t.diagnostics.confirmBooking}
                 </motion.button>
               ) : (
                 <div className="space-y-3">
                   <div className="rounded-xl bg-emerald-500/15 border border-emerald-500/30 p-3 text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
                     <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
-                    <span>{t.diagnostics.bookingConfirmed}</span>
+                    <span>
+                      {t.diagnostics.bookingConfirmed.replace('DM-8942', ticketId || 'DM-8942')}
+                    </span>
                   </div>
                   <a
                     href={`tel:${activeDevice.hotline}`}
