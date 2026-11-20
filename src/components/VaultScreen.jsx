@@ -292,7 +292,7 @@ export default function VaultScreen({
                 </div>
               </div>
 
-              <div className="mt-2.5 flex items-center justify-between text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+              <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
                 <span>{t.vault.tapCertificate}</span>
                 <span>{isAr ? device.authorizedGroupAr : device.authorizedGroupEn}</span>
               </div>
