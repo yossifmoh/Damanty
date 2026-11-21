@@ -298,3 +298,49 @@ export async function reportFraudOnCloud({ qrPayload, notes }) {
     return { ok: false };
   }
 }
+
+export async function requestAiDiagnosis({ query, lang, device, devices }) {
+  try {
+    const res = await fetch('/api/diagnose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        query,
+        lang,
+        device: device
+          ? {
+              nameAr: device.nameAr,
+              nameEn: device.nameEn,
+              brand: device.brand,
+              model: device.model,
+              category: device.category,
+              status: device.status,
+              hotline: device.hotline,
+            }
+          : null,
+        devices: Array.isArray(devices)
+          ? devices.slice(0, 6).map((d) => ({
+              nameAr: d.nameAr,
+              nameEn: d.nameEn,
+              brand: d.brand,
+              model: d.model,
+              category: d.category,
+            }))
+          : [],
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        configured: data?.configured ?? true,
+        error: data?.error || 'AI_REQUEST_FAILED',
+      };
+    }
+    return data || { ok: false, error: 'INVALID_RESPONSE' };
+  } catch {
+    return { ok: false, error: 'NETWORK_ERROR' };
+  }
+}

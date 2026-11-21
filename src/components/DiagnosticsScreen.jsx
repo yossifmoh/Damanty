@@ -13,8 +13,10 @@ import {
   ShieldCheck,
   Lock,
   Plus,
+  Loader2,
+  AlertTriangle,
 } from 'lucide-react';
-import { bookServiceOnCloud } from '../utils/cloudSync';
+import { bookServiceOnCloud, requestAiDiagnosis } from '../utils/cloudSync';
 import { diagnoseQuery } from '../utils/troubleshootEngine';
 
 export default function DiagnosticsScreen({
@@ -34,6 +36,13 @@ export default function DiagnosticsScreen({
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
   const [ticketId, setTicketId] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
+
+  // Live Gemini AI state
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState(null); // { query, lang, source, title, summary, steps, recommendTechnician, statusHint }
+  const aiCacheRef = useRef(new Map());
+  const requestSeqRef = useRef(0);
+
   const demoInjectedRef = useRef(false);
   const prevTourStepRef = useRef(null);
   const diagResultRef = useRef(null);
@@ -48,7 +57,7 @@ export default function DiagnosticsScreen({
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  // Live guided tour demo step for Diagnostics (when devices are present)
+  // Live guided tour demo step (0-token local showcase)
   useEffect(() => {
     if (prevTourStepRef.current === tourStepId) return;
     prevTourStepRef.current = tourStepId;
@@ -56,6 +65,8 @@ export default function DiagnosticsScreen({
     if (tourStepId === 'diagnostics-live' && Array.isArray(devices) && devices.length > 0) {
       const sampleQuery = isAr ? 'التكييف بينقط مية' : 'AC dripping water';
       demoInjectedRef.current = true;
+      setAiResult(null);
+      setAiLoading(false);
       setSymptomInput(sampleQuery);
       setSubmittedQuery(sampleQuery);
       setCheckedSteps({});
@@ -70,6 +81,8 @@ export default function DiagnosticsScreen({
       }, 220);
     } else if (demoInjectedRef.current) {
       demoInjectedRef.current = false;
+      setAiResult(null);
+      setAiLoading(false);
       setSymptomInput('');
       setSubmittedQuery('');
       setCheckedSteps({});
@@ -84,6 +97,7 @@ export default function DiagnosticsScreen({
       if (preDev) {
         const devTitle = isAr ? preDev.nameAr : preDev.nameEn;
         demoInjectedRef.current = false;
+        setAiResult(null);
         setSymptomInput(devTitle);
         setSubmittedQuery(devTitle);
         setCheckedSteps({});
@@ -93,13 +107,94 @@ export default function DiagnosticsScreen({
   }, [preselectedDeviceId, devices, isAr]);
 
   const safeDevices = Array.isArray(devices) ? devices : [];
-  const activeGuide = diagnoseQuery({
+  const localGuide = diagnoseQuery({
     query: submittedQuery,
     devices: safeDevices,
   });
 
-  const activeDevice = activeGuide.matchedDevice || null;
-  const activeProfile = activeGuide.profile || {};
+  const activeDevice = localGuide.matchedDevice || null;
+  const activeProfile = localGuide.profile || {};
+
+  // Execute token-efficient Gemini AI call with Vault gating + session cache
+  const runDiagnosisQuery = async (rawText) => {
+    const clean = String(rawText || '').trim();
+    demoInjectedRef.current = false;
+    setSubmittedQuery(clean);
+    setCheckedSteps({});
+    setResolved(false);
+
+    if (!clean || safeDevices.length === 0) {
+      setAiResult(null);
+      setAiLoading(false);
+      return;
+    }
+
+    const preCheck = diagnoseQuery({ query: clean, devices: safeDevices });
+    if (preCheck.locked || preCheck.notInVault) {
+      setAiResult(null);
+      setAiLoading(false);
+      return;
+    }
+
+    const targetDev = preCheck.matchedDevice || null;
+    const cacheKey = `${lang}::${targetDev?.id || 'any'}::${clean.toLowerCase()}`;
+    const cached = aiCacheRef.current.get(cacheKey);
+    if (cached) {
+      setAiResult(cached);
+      setAiLoading(false);
+      return;
+    }
+
+    const seq = ++requestSeqRef.current;
+    setAiLoading(true);
+    setAiResult(null);
+
+    const apiRes = await requestAiDiagnosis({
+      query: clean,
+      lang,
+      device: targetDev,
+      devices: safeDevices,
+    });
+
+    if (requestSeqRef.current !== seq) return;
+    setAiLoading(false);
+
+    if (apiRes?.ok && apiRes.diagnosis) {
+      const formatted = {
+        query: clean,
+        lang,
+        source: 'gemini',
+        title: apiRes.diagnosis.title,
+        summary: apiRes.diagnosis.summary,
+        steps: apiRes.diagnosis.steps.map((text, idx) => ({
+          id: `ai-${seq}-${idx}`,
+          ar: text,
+          en: text,
+        })),
+        recommendTechnician: Boolean(apiRes.diagnosis.recommendTechnician),
+        statusHint: '',
+      };
+      aiCacheRef.current.set(cacheKey, formatted);
+      setAiResult(formatted);
+    } else {
+      let statusHint = '';
+      if (apiRes?.configured === false) {
+        statusHint = t.diagnostics.aiKeyMissingHint;
+      } else if (apiRes?.error === 'AI_RATE_LIMITED') {
+        statusHint = t.diagnostics.aiRateLimitHint;
+      }
+      setAiResult({
+        query: clean,
+        lang,
+        source: 'local_fallback',
+        title: isAr ? preCheck.titleAr : preCheck.titleEn,
+        summary: isAr ? preCheck.replyAr : preCheck.replyEn,
+        steps: preCheck.steps || [],
+        recommendTechnician: false,
+        statusHint,
+      });
+    }
+  };
 
   // Tailor prompt pills strictly to appliances present in the user's Vault
   const quickPrompts = useMemo(() => {
@@ -130,10 +225,7 @@ export default function DiagnosticsScreen({
 
   const handleAskAssistant = (e) => {
     e?.preventDefault();
-    demoInjectedRef.current = false;
-    setSubmittedQuery(symptomInput.trim());
-    setCheckedSteps({});
-    setResolved(false);
+    runDiagnosisQuery(symptomInput);
   };
 
   const openBookingSheet = () => {
@@ -178,8 +270,26 @@ export default function DiagnosticsScreen({
     }));
   };
 
-  const steps = activeGuide.steps || [];
+  const useAiPayload =
+    aiResult &&
+    aiResult.query === submittedQuery &&
+    aiResult.lang === lang &&
+    !localGuide.locked &&
+    !localGuide.notInVault;
+
+  const displayTitle = useAiPayload
+    ? aiResult.title
+    : isAr
+    ? localGuide.titleAr
+    : localGuide.titleEn;
+  const displayReply = useAiPayload
+    ? aiResult.summary
+    : isAr
+    ? localGuide.replyAr
+    : localGuide.replyEn;
+  const steps = useAiPayload ? aiResult.steps || [] : localGuide.steps || [];
   const completedCount = steps.filter((s) => checkedSteps[s.id]).length;
+  const recommendTech = Boolean(useAiPayload && aiResult.recommendTechnician);
 
   return (
     <div className="space-y-4 pb-28 md:pb-10">
@@ -193,7 +303,7 @@ export default function DiagnosticsScreen({
       </div>
 
       {/* Exclusive Gate: AI Diagnostics unlocks ONLY when user has registered appliances */}
-      {activeGuide.locked ? (
+      {localGuide.locked ? (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -252,9 +362,14 @@ export default function DiagnosticsScreen({
               <motion.button
                 whileTap={{ scale: 0.96 }}
                 type="submit"
-                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-md shadow-emerald-500/20 shrink-0"
+                disabled={aiLoading}
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-md shadow-emerald-500/20 shrink-0 disabled:opacity-65"
               >
-                <Send className="h-3.5 w-3.5" />
+                {aiLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5" />
+                )}
                 <span>{t.diagnostics.askBtn}</span>
               </motion.button>
             </div>
@@ -265,14 +380,12 @@ export default function DiagnosticsScreen({
                   <button
                     key={sym}
                     type="button"
+                    disabled={aiLoading}
                     onClick={() => {
-                      demoInjectedRef.current = false;
                       setSymptomInput(sym);
-                      setSubmittedQuery(sym);
-                      setCheckedSteps({});
-                      setResolved(false);
+                      runDiagnosisQuery(sym);
                     }}
-                    className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-[10px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-emerald-500/15 hover:text-emerald-600 transition-colors"
+                    className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-[10px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-emerald-500/15 hover:text-emerald-600 transition-colors disabled:opacity-55"
                   >
                     {sym}
                   </button>
@@ -281,8 +394,8 @@ export default function DiagnosticsScreen({
             )}
           </form>
 
-          {/* Unregistered Appliance Notice OR Diagnostic Assistant Response Card */}
-          {activeGuide.notInVault ? (
+          {/* Unregistered Appliance Notice OR Loading OR Diagnostic Assistant Response Card */}
+          {localGuide.notInVault ? (
             <div
               ref={diagResultRef}
               id="tour-diag-result"
@@ -304,9 +417,20 @@ export default function DiagnosticsScreen({
                   className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-md"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  <span>{t.diagnostics.lockedCtaScan}</span>
+                  <span>{t.diagnostics.addDeviceCtaScan}</span>
                 </button>
               )}
+            </div>
+          ) : aiLoading ? (
+            <div
+              ref={diagResultRef}
+              id="tour-diag-result"
+              className="rounded-2xl border border-emerald-500/35 bg-white dark:bg-slate-900/75 p-6 text-center space-y-2.5"
+            >
+              <Loader2 className="mx-auto h-7 w-7 text-emerald-500 animate-spin" />
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                {t.diagnostics.aiLoadingText}
+              </p>
             </div>
           ) : (
             <div
@@ -318,15 +442,36 @@ export default function DiagnosticsScreen({
                   : 'border-slate-200 dark:border-white/10'
               }`}
             >
-              {activeDevice && (
-                <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
-                  <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-                  <span>
+              {/* Source + Linked Vault Device Badges */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {useAiPayload && (
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold ${
+                      aiResult.source === 'gemini'
+                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border border-emerald-500/30'
+                        : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    <Sparkles className="h-3 w-3 shrink-0" />
+                    {aiResult.source === 'gemini'
+                      ? t.diagnostics.aiBadgeLive
+                      : t.diagnostics.aiBadgeLocalFallback}
+                  </span>
+                )}
+                {activeDevice && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                    <ShieldCheck className="h-3 w-3 shrink-0" />
                     {isAr
                       ? `مرتبط بجهازك المسجل: ${activeDevice.nameAr}`
                       : `Linked to your Vault: ${activeDevice.nameEn}`}
                   </span>
-                </div>
+                )}
+              </div>
+
+              {useAiPayload && aiResult.statusHint && (
+                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                  {aiResult.statusHint}
+                </p>
               )}
 
               <div className="flex items-start justify-between gap-2">
@@ -336,15 +481,15 @@ export default function DiagnosticsScreen({
                   </div>
                   <div>
                     <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                      {isAr ? activeGuide.titleAr : activeGuide.titleEn}
+                      {displayTitle}
                     </h3>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      {isAr ? activeGuide.replyAr : activeGuide.replyEn}
+                    <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                      {displayReply}
                     </p>
                   </div>
                 </div>
                 <span className="shrink-0 rounded-full bg-amber-500/15 px-2.5 py-1 text-[10px] font-bold text-amber-600 dark:text-amber-300">
-                  {t.diagnostics.saveBadge} {activeGuide.savedEgp} {t.diagnostics.egp}
+                  {t.diagnostics.saveBadge} {localGuide.savedEgp || 500} {t.diagnostics.egp}
                 </span>
               </div>
 
@@ -392,6 +537,14 @@ export default function DiagnosticsScreen({
                 })}
               </div>
 
+              {/* AI Urgent Technician Escalation Alert when Gemini flags hardware/safety issue */}
+              {recommendTech && !resolved && (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2.5 flex items-center gap-2 text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                  <span>{t.diagnostics.aiRecommendTech}</span>
+                </div>
+              )}
+
               {/* Actions */}
               {!resolved ? (
                 <div className="pt-2 space-y-2">
@@ -409,7 +562,11 @@ export default function DiagnosticsScreen({
                     </span>
                     <button
                       onClick={openBookingSheet}
-                      className="inline-flex items-center gap-1 text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline"
+                      className={`inline-flex items-center gap-1 text-xs font-bold hover:underline ${
+                        recommendTech
+                          ? 'rounded-lg bg-amber-500 px-3 py-1.5 text-slate-950 shadow-sm'
+                          : 'text-amber-600 dark:text-amber-400'
+                      }`}
                     >
                       <Wrench className="h-3.5 w-3.5" />
                       {t.diagnostics.bookTechBtn}
@@ -451,6 +608,7 @@ export default function DiagnosticsScreen({
                 </h3>
                 <button
                   onClick={closeBookingSheet}
+                  aria-label={t.vault.close}
                   className="rounded-full bg-slate-100 dark:bg-slate-800 p-1.5"
                 >
                   <X className="h-4 w-4 text-slate-500" />

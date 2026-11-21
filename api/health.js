@@ -8,6 +8,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ok: false,
       configured: false,
+      geminiConfigured: Boolean((process.env.GEMINI_API_KEY || '').trim()),
       message: 'DATABASE_URL not configured',
     });
   }
@@ -20,6 +21,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ok: true,
       configured: true,
+      geminiConfigured: Boolean((process.env.GEMINI_API_KEY || '').trim()),
       provider: 'Neon Serverless Postgres',
       database: rows[0]?.db_name || 'neondb',
       serverTime: rows[0]?.server_time,
