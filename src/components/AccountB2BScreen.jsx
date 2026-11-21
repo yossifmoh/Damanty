@@ -56,6 +56,7 @@ export default function AccountB2BScreen({
     if (code === 'INVALID_INPUT') return t.account.authErrInvalid;
     if (code === 'EMAIL_EXISTS') return t.account.authErrEmailExists;
     if (code === 'INVALID_CREDENTIALS') return t.account.authErrCredentials;
+    if (code === 'RATE_LIMITED') return t.account.authErrRateLimit;
     return t.account.authErrServer;
   };
 
@@ -92,6 +93,8 @@ export default function AccountB2BScreen({
   const handleSignOut = async () => {
     setAuthLoading(true);
     await signOutAccount();
+    setAuthPassword('');
+    setAuthError('');
     await onAuthChanged?.(null, false);
     setAuthLoading(false);
   };
@@ -165,6 +168,7 @@ export default function AccountB2BScreen({
                 onClick={() => {
                   setAuthTab('signin');
                   setAuthError('');
+                  setAuthPassword('');
                 }}
                 className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition-all ${
                   authTab === 'signin'
@@ -180,6 +184,7 @@ export default function AccountB2BScreen({
                 onClick={() => {
                   setAuthTab('signup');
                   setAuthError('');
+                  setAuthPassword('');
                 }}
                 className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition-all ${
                   authTab === 'signup'

@@ -9,6 +9,7 @@ import {
   Moon,
   Sun,
   Building2,
+  HelpCircle,
 } from 'lucide-react';
 import { INITIAL_DEVICES, TRANSLATIONS } from './data/mockData';
 import VaultScreen from './components/VaultScreen';
@@ -16,6 +17,7 @@ import ScannerScreen from './components/ScannerScreen';
 import DiagnosticsScreen from './components/DiagnosticsScreen';
 import CentersScreen from './components/CentersScreen';
 import AccountB2BScreen from './components/AccountB2BScreen';
+import OnboardingTutorialModal from './components/OnboardingTutorialModal';
 import {
   savePhotoDoc,
   getAllPhotoCounts,
@@ -78,6 +80,16 @@ export default function App() {
   const [diagDeviceId, setDiagDeviceId] = useState(null);
   const [photoCounts, setPhotoCounts] = useState({});
   const [user, setUser] = useState(null);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+
+  const dismissTutorial = useCallback(() => {
+    setTutorialOpen(false);
+    try {
+      localStorage.setItem('damanty_tutorial_seen_v1', 'true');
+    } catch {
+      // Ignore storage error
+    }
+  }, []);
 
   // Sync browser History API so phone/browser Back navigates tabs & modals instead of closing app
   useEffect(() => {
@@ -136,6 +148,14 @@ export default function App() {
         } catch {
           setDevices([]);
         }
+      } else {
+        try {
+          if (!localStorage.getItem('damanty_tutorial_seen_v1')) {
+            setTutorialOpen(true);
+          }
+        } catch {
+          // Ignore storage error
+        }
       }
 
       const cloudData = await fetchCloudVault();
@@ -158,7 +178,8 @@ export default function App() {
   const handleAuthChanged = async (newUser, isSignUp) => {
     setUser(newUser);
     if (!newUser) {
-      // Signed out -> restore Guest Demo vault
+      // Signed out -> restore Guest Demo vault and clear stale banners
+      setLiveBanner(null);
       try {
         const guestSaved = localStorage.getItem(STORAGE_KEYS.DEVICES);
         setDevices(guestSaved ? JSON.parse(guestSaved) : INITIAL_DEVICES);
@@ -285,7 +306,7 @@ export default function App() {
         : null
     );
 
-    if (savedProof?.dataUrl) {
+    if (savedProof?.dataUrl && user) {
       await uploadPhotoToCloud({
         deviceId: newDevice.id,
         proofId: savedProof.id,
@@ -307,6 +328,7 @@ export default function App() {
 
   const handleDeleteDevice = async (deviceId) => {
     setDevices((prev) => prev.filter((d) => d.id !== deviceId));
+    setLiveBanner(null);
     await deletePhotosForDevice(deviceId);
     refreshPhotoCounts();
     syncDeleteDeviceToCloud(deviceId);
@@ -369,7 +391,7 @@ export default function App() {
         : null
     );
 
-    if (savedProof?.dataUrl) {
+    if (savedProof?.dataUrl && user) {
       await uploadPhotoToCloud({
         deviceId,
         proofId: savedProof.id,
@@ -483,6 +505,15 @@ export default function App() {
             <div className="flex items-center gap-2">
               <motion.button
                 whileTap={{ scale: 0.95 }}
+                onClick={() => setTutorialOpen(true)}
+                className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 p-2 text-emerald-600 dark:text-emerald-400"
+                aria-label={t.tutorial.openTourBtn}
+                title={t.tutorial.openTourBtn}
+              >
+                <HelpCircle className="h-4 w-4" />
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.95 }}
                 onClick={() => setLang((l) => (l === 'ar' ? 'en' : 'ar'))}
                 className="flex-1 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 py-2 text-xs font-extrabold text-emerald-600 dark:text-emerald-400"
               >
@@ -530,8 +561,16 @@ export default function App() {
               </div>
             </div>
 
-            {/* Instant Account + AR/EN & Night/Light Toggles */}
+            {/* Instant Account + Tour + AR/EN & Night/Light Toggles */}
             <div className="flex items-center gap-1.5">
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={() => setTutorialOpen(true)}
+                className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 p-1.5 text-emerald-600 dark:text-emerald-400"
+                aria-label={t.tutorial.openTourBtn}
+              >
+                <HelpCircle className="h-4 w-4" />
+              </motion.button>
               <motion.button
                 whileTap={{ scale: 0.92 }}
                 onClick={() => navigateTab('account')}
@@ -683,6 +722,18 @@ export default function App() {
           </nav>
         </div>
       </div>
+
+      {/* First-Visit Interactive Demo & Sign-In Tutorial */}
+      <OnboardingTutorialModal
+        open={tutorialOpen}
+        lang={lang}
+        t={t}
+        onCloseDemo={dismissTutorial}
+        onGoToSignIn={() => {
+          dismissTutorial();
+          navigateTab('account');
+        }}
+      />
     </div>
   );
 }

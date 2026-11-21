@@ -14,6 +14,9 @@ async function ensureProofColumns(sql) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+
   const connStr = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!connStr) {
     return res.status(503).json({ ok: false, error: 'Database not configured' });
@@ -24,7 +27,10 @@ export default async function handler(req, res) {
 
   const sql = neon(connStr);
   const session = getSessionFromRequest(req);
-  const userKey = session?.userId || 'eg-demo-guest';
+  if (!session?.userId) {
+    return res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+  }
+  const userKey = session.userId;
 
   try {
     await ensureProofColumns(sql);

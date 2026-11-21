@@ -1,6 +1,8 @@
 import { neon } from '@neondatabase/serverless';
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
   const connStr = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!connStr) {
     return res.status(200).json({

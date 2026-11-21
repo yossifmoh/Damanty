@@ -203,6 +203,9 @@ async function insertReceiptProof(sql, userKey, deviceId, proof) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+
   const connStr = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!connStr) {
     return res.status(503).json({ ok: false, error: 'Neon DATABASE_URL not configured' });
@@ -335,6 +338,9 @@ export default async function handler(req, res) {
       }
 
       if (action === 'claim_transfer' && body.code) {
+        if (!session?.userId) {
+          return res.status(401).json({ ok: false, error: 'AUTH_REQUIRED' });
+        }
         const code = String(body.code).trim().toUpperCase();
         const rows = await sql`
           SELECT * FROM warranty_transfers WHERE code = ${code} LIMIT 1

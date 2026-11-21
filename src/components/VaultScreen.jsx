@@ -204,9 +204,10 @@ export default function VaultScreen({
     ? Math.round(
         devices.reduce((acc, d) => acc + (d.remainingPct || 0), 0) / devices.length
       )
-    : 100;
-  // Display boosted protection score (e.g. 94% when 4+ devices or newly scanned)
-  const protectionScore = Math.min(99, Math.max(82, avgScore + 18));
+    : 0;
+  const protectionScore = devices.length
+    ? Math.min(99, Math.max(82, avgScore + 18))
+    : 0;
 
   const expiringDevice = devices.find((d) => d.status === 'expiring_soon');
 
@@ -289,7 +290,9 @@ export default function VaultScreen({
     const res = await claimTransferOnCloud(claimCode.trim());
     setClaimLoading(false);
     if (!res?.ok || !res.device) {
-      if (res?.error === 'TRANSFER_ALREADY_CLAIMED') {
+      if (res?.error === 'AUTH_REQUIRED') {
+        setClaimError(t.vault.claimAuthRequired);
+      } else if (res?.error === 'TRANSFER_ALREADY_CLAIMED') {
         setClaimError(t.vault.claimAlreadyUsed);
       } else {
         setClaimError(t.vault.claimNotFound);
@@ -303,8 +306,25 @@ export default function VaultScreen({
   const handleSaveEdit = (e) => {
     e.preventDefault();
     if (!editingDevice) return;
-    onUpdateDevice?.(editingDevice);
-    setSelectedDevice(editingDevice);
+    const years = Number(editingDevice.warrantyYears || 3);
+    const base = new Date(`${editingDevice.purchaseDate || '2026-01-01'}T00:00:00`);
+    const safeBase = Number.isNaN(base.getTime()) ? new Date() : base;
+    const exp = new Date(safeBase);
+    exp.setFullYear(exp.getFullYear() + years);
+    const totalMs = Math.max(1, exp.getTime() - safeBase.getTime());
+    const remMs = Math.max(0, exp.getTime() - Date.now());
+    const daysLeft = Math.max(0, Math.round(remMs / (1000 * 60 * 60 * 24)));
+    const remainingPct = Math.min(100, Math.max(0, Math.round((remMs / totalMs) * 100)));
+    const updated = {
+      ...editingDevice,
+      warrantyYears: years,
+      expiryDate: exp.toISOString().slice(0, 10),
+      daysLeft,
+      remainingPct,
+      status: daysLeft <= 60 ? 'expiring_soon' : 'active',
+    };
+    onUpdateDevice?.(updated);
+    setSelectedDevice(updated);
     setEditingDevice(null);
   };
 
@@ -668,35 +688,85 @@ export default function VaultScreen({
                   onSubmit={handleSaveEdit}
                   className="mb-4 rounded-2xl border border-emerald-500/30 bg-white dark:bg-slate-900 p-3.5 text-xs space-y-2.5"
                 >
-                  <input
-                    type="text"
-                    required
-                    value={isAr ? editingDevice.nameAr : editingDevice.nameEn}
-                    onChange={(e) =>
-                      setEditingDevice((prev) => ({
-                        ...prev,
-                        [isAr ? 'nameAr' : 'nameEn']: e.target.value,
-                      }))
-                    }
-                    className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 font-bold text-slate-900 dark:text-white"
-                  />
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                      {t.scanner.fieldName}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={isAr ? editingDevice.nameAr : editingDevice.nameEn}
+                      onChange={(e) =>
+                        setEditingDevice((prev) => ({
+                          ...prev,
+                          [isAr ? 'nameAr' : 'nameEn']: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 font-bold text-slate-900 dark:text-white"
+                    />
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      value={editingDevice.model}
-                      onChange={(e) =>
-                        setEditingDevice((prev) => ({ ...prev, model: e.target.value }))
-                      }
-                      className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 font-mono text-slate-900 dark:text-white"
-                    />
-                    <input
-                      type="text"
-                      value={editingDevice.serial}
-                      onChange={(e) =>
-                        setEditingDevice((prev) => ({ ...prev, serial: e.target.value }))
-                      }
-                      className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 font-mono text-slate-900 dark:text-white"
-                    />
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        {t.scanner.fieldModel}
+                      </label>
+                      <input
+                        type="text"
+                        value={editingDevice.model}
+                        onChange={(e) =>
+                          setEditingDevice((prev) => ({ ...prev, model: e.target.value }))
+                        }
+                        className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 font-mono text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        {t.scanner.fieldSerial}
+                      </label>
+                      <input
+                        type="text"
+                        value={editingDevice.serial}
+                        onChange={(e) =>
+                          setEditingDevice((prev) => ({ ...prev, serial: e.target.value }))
+                        }
+                        className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 font-mono text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        {t.scanner.fieldDate}
+                      </label>
+                      <input
+                        type="date"
+                        value={editingDevice.purchaseDate}
+                        onChange={(e) =>
+                          setEditingDevice((prev) => ({ ...prev, purchaseDate: e.target.value }))
+                        }
+                        className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 font-mono text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        {t.scanner.fieldYears}
+                      </label>
+                      <select
+                        value={editingDevice.warrantyYears || 3}
+                        onChange={(e) =>
+                          setEditingDevice((prev) => ({
+                            ...prev,
+                            warrantyYears: Number(e.target.value),
+                          }))
+                        }
+                        className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-2.5 py-2 font-bold text-slate-900 dark:text-white"
+                      >
+                        <option value={1}>1</option>
+                        <option value={2}>2</option>
+                        <option value={3}>3</option>
+                        <option value={5}>5</option>
+                      </select>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <button

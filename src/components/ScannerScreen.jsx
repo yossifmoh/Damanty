@@ -865,10 +865,10 @@ export default function ScannerScreen({
                       <motion.button
                         whileTap={{ scale: 0.96 }}
                         onClick={handleSaveDevice}
-                        className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-3 px-2 text-xs font-extrabold text-slate-950"
+                        className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-3 px-2.5 text-[11px] sm:text-xs font-extrabold text-slate-950 leading-tight text-center"
                       >
                         <Plus className="h-4 w-4 shrink-0" />
-                        <span className="truncate">
+                        <span>
                           {saveTarget === 'maintenance'
                             ? t.scanner.saveMaintBtn
                             : t.scanner.addToVault}
