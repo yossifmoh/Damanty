@@ -216,7 +216,10 @@ export default function DiagnosticsScreen({
           isAr ? `تبريد ${dev.brandAr || dev.brand}` : `${dev.brand} fridge cooling`
         );
       } else {
-        prompts.push(isAr ? `فحص وصيانة ${label.slice(0, 24)}` : `Check ${label.slice(0, 24)}`);
+        const shortBrand = isAr
+          ? dev.brandAr || dev.brand || label.split(' ').slice(0, 2).join(' ')
+          : dev.brand || label.split(' ').slice(0, 2).join(' ');
+        prompts.push(isAr ? `فحص وصيانة ${shortBrand}` : `Check ${shortBrand}`);
       }
       if (prompts.length >= 4) break;
     }

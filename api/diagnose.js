@@ -2,8 +2,24 @@ import crypto from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { getSessionFromRequest } from './_authUtils.js';
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const GEMINI_MODELS = [
+  {
+    name: 'gemini-3.8-flash',
+    thinkingConfig: { thinkingLevel: 'LOW', includeThoughts: false },
+    maxOutputTokens: 1024,
+  },
+  {
+    name: 'gemini-3.0-flash',
+    thinkingConfig: { thinkingLevel: 'LOW', includeThoughts: false },
+    maxOutputTokens: 1024,
+  },
+  {
+    name: 'gemini-2.5-flash',
+    thinkingConfig: { thinkingBudget: 0 },
+    maxOutputTokens: 512,
+  },
+];
+
 const WINDOW_MINUTES = 15;
 const AUTH_LIMIT = 25;
 const GUEST_LIMIT = 6;
@@ -66,7 +82,6 @@ async function checkAndConsumeQuota(key, maxRequests) {
       remaining: Math.max(0, maxRequests - (Number(row.request_count) + 1)),
     };
   } catch {
-    // Allow diagnostic request if DB rate-limit check is momentarily unavailable
     return { allowed: true };
   }
 }
@@ -90,7 +105,7 @@ function buildCompactPrompt({ query, lang, device, devices }) {
     systemText:
       `You are Damanty (ضمنتي), an expert home electrical appliance technician assistant in Egypt. ` +
       `Respond strictly in valid JSON in ${targetLang}. ` +
-      `Be super concise to save tokens: write a short title (<=55 chars), a 1-2 sentence diagnosis summary, ` +
+      `Be super concise to save tokens: write a short title (<=60 chars), a 1-2 sentence diagnosis summary, ` +
       `and 3 to 4 safe, practical DIY checks the user can try right now. ` +
       `NEVER instruct users to open live high-voltage panels, touch gas lines, or refill refrigerant. ` +
       `Set recommendTechnician=true if it involves electrical sparks/breaker tripping, burnt smell, gas leak, compressor/PCB failure, water leaking onto wiring, or likely needs an authorized technician.`,
@@ -117,13 +132,93 @@ function parseGeminiJson(rawText) {
       : [];
     if (!obj.title || !obj.summary || steps.length === 0) return null;
     return {
-      title: String(obj.title).slice(0, 110),
-      summary: String(obj.summary).slice(0, 320),
+      title: String(obj.title).slice(0, 120),
+      summary: String(obj.summary).slice(0, 360),
       steps,
       recommendTechnician: Boolean(obj.recommendTechnician),
     };
   } catch {
     return null;
+  }
+}
+
+async function callGeminiModel(modelSpec, apiKey, systemText, userText) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelSpec.name}:generateContent`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 14000);
+
+  try {
+    const apiRes = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemText }],
+        },
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: userText }],
+          },
+        ],
+        generationConfig: {
+          thinkingConfig: modelSpec.thinkingConfig,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              summary: { type: 'string' },
+              steps: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+              recommendTechnician: { type: 'boolean' },
+            },
+            required: ['title', 'summary', 'steps', 'recommendTechnician'],
+          },
+          temperature: 0.25,
+          maxOutputTokens: modelSpec.maxOutputTokens,
+        },
+      }),
+    });
+
+    clearTimeout(timer);
+
+    if (!apiRes.ok) {
+      const errText = await apiRes.text().catch(() => '');
+      return {
+        ok: false,
+        status: apiRes.status,
+        detail: errText.slice(0, 220),
+      };
+    }
+
+    const payload = await apiRes.json();
+    const parts = payload?.candidates?.[0]?.content?.parts || [];
+    const answerPart =
+      parts.find((p) => !p.thought && typeof p.text === 'string') ||
+      parts[parts.length - 1];
+    const parsed = parseGeminiJson(answerPart?.text || '');
+    if (!parsed) {
+      return { ok: false, status: 502, detail: 'GEMINI_PARSE_ERROR' };
+    }
+    return {
+      ok: true,
+      model: modelSpec.name,
+      diagnosis: parsed,
+    };
+  } catch (error) {
+    clearTimeout(timer);
+    return {
+      ok: false,
+      status: 502,
+      detail: error?.name === 'AbortError' ? 'GEMINI_TIMEOUT' : 'GEMINI_NETWORK_ERROR',
+    };
   }
 }
 
@@ -142,6 +237,7 @@ export default async function handler(req, res) {
   } catch {
     body = {};
   }
+
   const query = String(body.query || '').trim().slice(0, 350);
   const lang = body.lang === 'en' ? 'en' : 'ar';
   const device = body.device && typeof body.device === 'object' ? body.device : null;
@@ -187,89 +283,30 @@ export default async function handler(req, res) {
     devices,
   });
 
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 14000);
-
-    const apiRes = await fetch(GEMINI_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemText }],
-        },
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: userText }],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              title: { type: 'STRING' },
-              summary: { type: 'STRING' },
-              steps: {
-                type: 'ARRAY',
-                items: { type: 'STRING' },
-              },
-              recommendTechnician: { type: 'BOOLEAN' },
-            },
-            required: ['title', 'summary', 'steps', 'recommendTechnician'],
-          },
-          thinkingConfig: {
-            thinkingBudget: 0,
-          },
-          temperature: 0.25,
-          maxOutputTokens: 420,
-        },
-      }),
-    });
-
-    clearTimeout(timer);
-
-    if (!apiRes.ok) {
-      const errText = await apiRes.text().catch(() => '');
-      return res.status(502).json({
-        ok: false,
+  let lastFailure = null;
+  for (const modelSpec of GEMINI_MODELS) {
+    const attempt = await callGeminiModel(modelSpec, apiKey, systemText, userText);
+    if (attempt.ok) {
+      return res.status(200).json({
+        ok: true,
         configured: true,
-        error: 'GEMINI_UPSTREAM_ERROR',
-        statusCode: apiRes.status,
-        detail: errText.slice(0, 180),
+        source: 'gemini',
+        model: attempt.model,
+        diagnosis: attempt.diagnosis,
+        remainingQuota: quota.remaining,
       });
     }
-
-    const payload = await apiRes.json();
-    const rawText = payload?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const parsed = parseGeminiJson(rawText);
-
-    if (!parsed) {
-      return res.status(502).json({
-        ok: false,
-        configured: true,
-        error: 'GEMINI_PARSE_ERROR',
-      });
+    lastFailure = attempt;
+    if (attempt.status !== 404 && attempt.status !== 400) {
+      break;
     }
-
-    return res.status(200).json({
-      ok: true,
-      configured: true,
-      source: 'gemini',
-      model: GEMINI_MODEL,
-      diagnosis: parsed,
-      remainingQuota: quota.remaining,
-    });
-  } catch (error) {
-    return res.status(502).json({
-      ok: false,
-      configured: true,
-      error: error?.name === 'AbortError' ? 'GEMINI_TIMEOUT' : 'GEMINI_NETWORK_ERROR',
-    });
   }
+
+  return res.status(502).json({
+    ok: false,
+    configured: true,
+    error: 'GEMINI_UPSTREAM_ERROR',
+    statusCode: lastFailure?.status || 502,
+    detail: lastFailure?.detail || 'UPSTREAM_FAILED',
+  });
 }
