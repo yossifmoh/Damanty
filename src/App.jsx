@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ShieldCheck,
@@ -17,7 +17,9 @@ import ScannerScreen from './components/ScannerScreen';
 import DiagnosticsScreen from './components/DiagnosticsScreen';
 import CentersScreen from './components/CentersScreen';
 import AccountB2BScreen from './components/AccountB2BScreen';
-import OnboardingTutorialModal from './components/OnboardingTutorialModal';
+import OnboardingTutorialModal, {
+  TOUR_STEP_TABS,
+} from './components/OnboardingTutorialModal';
 import {
   savePhotoDoc,
   getAllPhotoCounts,
@@ -81,15 +83,8 @@ export default function App() {
   const [photoCounts, setPhotoCounts] = useState({});
   const [user, setUser] = useState(null);
   const [tutorialOpen, setTutorialOpen] = useState(false);
-
-  const dismissTutorial = useCallback(() => {
-    setTutorialOpen(false);
-    try {
-      localStorage.setItem('damanty_tutorial_seen_v1', 'true');
-    } catch {
-      // Ignore storage error
-    }
-  }, []);
+  const [tutorialStep, setTutorialStep] = useState(0);
+  const mainScrollRef = useRef(null);
 
   // Sync browser History API so phone/browser Back navigates tabs & modals instead of closing app
   useEffect(() => {
@@ -118,6 +113,53 @@ export default function App() {
       setActiveTab(nextTab);
     },
     [activeTab]
+  );
+
+  const scrollToTop = useCallback(() => {
+    try {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      mainScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch {
+      // Ignore scroll error
+    }
+  }, []);
+
+  const openTour = useCallback(() => {
+    setTutorialStep(0);
+    setActiveTab(TOUR_STEP_TABS[0] || 'vault');
+    setTutorialOpen(true);
+    scrollToTop();
+  }, [scrollToTop]);
+
+  const handleTourStepChange = useCallback(
+    (nextStep, nextTab) => {
+      setTutorialStep(nextStep);
+      if (VALID_TABS.includes(nextTab)) {
+        setActiveTab(nextTab);
+      }
+      scrollToTop();
+    },
+    [scrollToTop]
+  );
+
+  const dismissTutorial = useCallback(
+    (targetTab) => {
+      setTutorialOpen(false);
+      try {
+        localStorage.setItem('damanty_tutorial_seen_v1', 'true');
+      } catch {
+        // Ignore storage error
+      }
+      if (targetTab && VALID_TABS.includes(targetTab)) {
+        const url = targetTab === 'vault' ? window.location.pathname : `?tab=${targetTab}`;
+        if (window.history.state?.tab !== targetTab) {
+          window.history.pushState({ tab: targetTab, modal: null }, '', url);
+        }
+        setActiveTab(targetTab);
+        scrollToTop();
+      }
+    },
+    [scrollToTop]
   );
 
   const getDevicesStorageKey = useCallback((usr) => {
@@ -151,6 +193,8 @@ export default function App() {
       } else {
         try {
           if (!localStorage.getItem('damanty_tutorial_seen_v1')) {
+            setTutorialStep(0);
+            setActiveTab('vault');
             setTutorialOpen(true);
           }
         } catch {
@@ -227,6 +271,7 @@ export default function App() {
 
   const t = TRANSLATIONS[lang] || TRANSLATIONS.ar;
   const isAr = lang === 'ar';
+  const tourTab = tutorialOpen ? TOUR_STEP_TABS[tutorialStep] : null;
 
   // Sync HTML dir, lang, and dark class
   useEffect(() => {
@@ -452,12 +497,14 @@ export default function App() {
             <nav className="space-y-1.5">
               <SidebarItem
                 active={activeTab === 'vault'}
+                tourHighlight={tourTab === 'vault'}
                 onClick={() => navigateTab('vault')}
                 icon={<ShieldCheck className="h-5 w-5" />}
                 label={t.tabs.vault}
               />
               <SidebarItem
                 active={activeTab === 'scan'}
+                tourHighlight={tourTab === 'scan'}
                 onClick={() => navigateTab('scan')}
                 icon={<ScanLine className="h-5 w-5" />}
                 label={t.tabs.scan}
@@ -465,18 +512,21 @@ export default function App() {
               />
               <SidebarItem
                 active={activeTab === 'diagnostics'}
+                tourHighlight={tourTab === 'diagnostics'}
                 onClick={() => navigateTab('diagnostics')}
                 icon={<Wrench className="h-5 w-5" />}
                 label={t.tabs.diagnostics}
               />
               <SidebarItem
                 active={activeTab === 'centers'}
+                tourHighlight={tourTab === 'centers'}
                 onClick={() => navigateTab('centers')}
                 icon={<MapPin className="h-5 w-5" />}
                 label={t.tabs.centers}
               />
               <SidebarItem
                 active={activeTab === 'account'}
+                tourHighlight={tourTab === 'account'}
                 onClick={() => navigateTab('account')}
                 icon={<UserCircle2 className="h-5 w-5" />}
                 label={t.tabs.account}
@@ -505,7 +555,7 @@ export default function App() {
             <div className="flex items-center gap-2">
               <motion.button
                 whileTap={{ scale: 0.95 }}
-                onClick={() => setTutorialOpen(true)}
+                onClick={openTour}
                 className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 p-2 text-emerald-600 dark:text-emerald-400"
                 aria-label={t.tutorial.openTourBtn}
                 title={t.tutorial.openTourBtn}
@@ -565,7 +615,7 @@ export default function App() {
             <div className="flex items-center gap-1.5">
               <motion.button
                 whileTap={{ scale: 0.92 }}
-                onClick={() => setTutorialOpen(true)}
+                onClick={openTour}
                 className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 p-1.5 text-emerald-600 dark:text-emerald-400"
                 aria-label={t.tutorial.openTourBtn}
               >
@@ -605,7 +655,10 @@ export default function App() {
           </header>
 
           {/* Scrollable Screen Body */}
-          <main className="flex-1 md:overflow-y-auto no-scrollbar px-4 md:px-8 pt-4 md:pt-7">
+          <main
+            ref={mainScrollRef}
+            className="flex-1 md:overflow-y-auto no-scrollbar px-4 md:px-8 pt-4 md:pt-7"
+          >
             <div className="mx-auto w-full max-w-5xl">
               <AnimatePresence mode="wait">
                 <motion.div
@@ -678,12 +731,14 @@ export default function App() {
             <div className="pointer-events-auto relative mx-auto flex items-center justify-between rounded-3xl border border-slate-200/80 dark:border-white/15 bg-white/90 dark:bg-slate-900/90 backdrop-blur-2xl px-2 py-2 shadow-2xl shadow-black/25">
               <NavTab
                 active={activeTab === 'vault'}
+                tourHighlight={tourTab === 'vault'}
                 onClick={() => navigateTab('vault')}
                 icon={<ShieldCheck className="h-5 w-5" />}
                 label={t.tabs.vault}
               />
               <NavTab
                 active={activeTab === 'diagnostics'}
+                tourHighlight={tourTab === 'diagnostics'}
                 onClick={() => navigateTab('diagnostics')}
                 icon={<Wrench className="h-5 w-5" />}
                 label={t.tabs.diagnostics}
@@ -694,8 +749,12 @@ export default function App() {
                 <motion.button
                   whileTap={{ scale: 0.92 }}
                   onClick={() => navigateTab('scan')}
-                  className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-slate-950 shadow-xl shadow-emerald-500/40 border-4 border-[#f8fafc] dark:border-[#060913] ${
-                    activeTab === 'scan' ? 'ring-2 ring-emerald-400' : ''
+                  className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-slate-950 shadow-xl shadow-emerald-500/40 border-4 border-[#f8fafc] dark:border-[#060913] transition-all ${
+                    tourTab === 'scan'
+                      ? 'ring-4 ring-emerald-300 shadow-[0_0_26px_rgba(16,185,129,0.85)] scale-105'
+                      : activeTab === 'scan'
+                      ? 'ring-2 ring-emerald-400'
+                      : ''
                   }`}
                   aria-label={t.tabs.scan}
                 >
@@ -708,12 +767,14 @@ export default function App() {
 
               <NavTab
                 active={activeTab === 'centers'}
+                tourHighlight={tourTab === 'centers'}
                 onClick={() => navigateTab('centers')}
                 icon={<MapPin className="h-5 w-5" />}
                 label={t.tabs.centers}
               />
               <NavTab
                 active={activeTab === 'account'}
+                tourHighlight={tourTab === 'account'}
                 onClick={() => navigateTab('account')}
                 icon={<UserCircle2 className="h-5 w-5" />}
                 label={t.tabs.account}
@@ -723,27 +784,38 @@ export default function App() {
         </div>
       </div>
 
-      {/* First-Visit Interactive Demo & Sign-In Tutorial */}
+      {/* Live Interactive Guided Walkthrough Tour */}
       <OnboardingTutorialModal
         open={tutorialOpen}
+        step={tutorialStep}
         lang={lang}
         t={t}
+        isSignedIn={Boolean(user)}
+        onStepChange={handleTourStepChange}
         onCloseDemo={dismissTutorial}
-        onGoToSignIn={() => {
-          dismissTutorial();
-          navigateTab('account');
-        }}
+        onGoToSignIn={() => dismissTutorial('account')}
       />
     </div>
   );
 }
 
-function SidebarItem({ active, onClick, icon, label, highlight = false }) {
+function SidebarItem({
+  active,
+  tourHighlight = false,
+  onClick,
+  icon,
+  label,
+  highlight = false,
+}) {
   return (
     <motion.button
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
       className={`w-full flex items-center gap-3 rounded-2xl px-3.5 py-3 text-xs font-bold transition-all ${
+        tourHighlight
+          ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-white dark:ring-offset-[#090e1c] shadow-[0_0_24px_rgba(16,185,129,0.5)] '
+          : ''
+      }${
         active
           ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
           : highlight
@@ -757,12 +829,16 @@ function SidebarItem({ active, onClick, icon, label, highlight = false }) {
   );
 }
 
-function NavTab({ active, onClick, icon, label }) {
+function NavTab({ active, tourHighlight = false, onClick, icon, label }) {
   return (
     <motion.button
       whileTap={{ scale: 0.92 }}
       onClick={onClick}
-      className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-1 rounded-2xl transition-colors ${
+      className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-1 rounded-2xl transition-all ${
+        tourHighlight
+          ? 'bg-emerald-500/15 ring-2 ring-emerald-400 shadow-[0_0_16px_rgba(16,185,129,0.45)] '
+          : ''
+      }${
         active
           ? 'text-emerald-600 dark:text-emerald-400'
           : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'

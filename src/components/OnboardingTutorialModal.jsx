@@ -1,187 +1,238 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ShieldCheck,
   ScanLine,
-  Bot,
+  Wrench,
+  MapPin,
   UserCheck,
+  Sparkles,
   ArrowRight,
   ArrowLeft,
   X,
-  Sparkles,
 } from 'lucide-react';
 
+export const TOUR_STEP_TABS = [
+  'vault',
+  'vault',
+  'diagnostics',
+  'scan',
+  'centers',
+  'account',
+];
+
+const STEP_ICONS = [
+  Sparkles,
+  ShieldCheck,
+  Wrench,
+  ScanLine,
+  MapPin,
+  UserCheck,
+];
+
+const STEP_ACCENTS = [
+  'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30',
+  'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30',
+  'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/30',
+  'bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 border-cyan-500/30',
+  'bg-teal-500/15 text-teal-600 dark:text-teal-300 border-teal-500/30',
+  'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border-indigo-500/30',
+];
+
+/**
+ * Floating non-blocking guided tour that navigates the live app across all tabs
+ * while keeping the active screen visible and interactive behind it.
+ */
 export default function OnboardingTutorialModal({
   open,
+  step,
   lang,
   t,
+  isSignedIn = false,
+  onStepChange,
   onCloseDemo,
   onGoToSignIn,
 }) {
-  const [step, setStep] = useState(0);
   const isAr = lang === 'ar';
+  const steps = t?.tutorial?.steps || [];
+  const total = steps.length || TOUR_STEP_TABS.length;
+  const safeIndex = Math.max(0, Math.min(step, total - 1));
+  const current = steps[safeIndex];
 
-  if (!open) return null;
+  if (!open || !current) return null;
 
-  const slides = [
-    {
-      icon: <ShieldCheck className="h-8 w-8 text-emerald-400" />,
-      badge: t.tutorial.demoTag,
-      title: t.tutorial.s1Title,
-      desc: t.tutorial.s1Desc,
-      color: 'from-emerald-500/20 to-teal-500/10 border-emerald-500/30',
-    },
-    {
-      icon: <ScanLine className="h-8 w-8 text-emerald-400" />,
-      badge: t.tabs.scan,
-      title: t.tutorial.s2Title,
-      desc: t.tutorial.s2Desc,
-      color: 'from-teal-500/20 to-cyan-500/10 border-teal-500/30',
-    },
-    {
-      icon: <Bot className="h-8 w-8 text-amber-400" />,
-      badge: t.tabs.diagnostics,
-      title: t.tutorial.s3Title,
-      desc: t.tutorial.s3Desc,
-      color: 'from-amber-500/20 to-orange-500/10 border-amber-500/30',
-    },
-    {
-      icon: <UserCheck className="h-8 w-8 text-emerald-400" />,
-      badge: t.account.signInBtn,
-      title: t.tutorial.s4Title,
-      desc: t.tutorial.s4Desc,
-      color: 'from-emerald-500/25 to-slate-900 border-emerald-500/40',
-    },
-  ];
+  const StepIcon = STEP_ICONS[safeIndex] || Sparkles;
+  const accentClass = STEP_ACCENTS[safeIndex] || STEP_ACCENTS[0];
+  const isFirst = safeIndex === 0;
+  const isLast = safeIndex === total - 1;
+  const progressPct = ((safeIndex + 1) / total) * 100;
+  const stepLabel = (t.tutorial.stepOf || '{current}/{total}')
+    .replace('{current}', safeIndex + 1)
+    .replace('{total}', total);
 
-  const current = slides[step];
-  const isLast = step === slides.length - 1;
+  const PrevIcon = isAr ? ArrowRight : ArrowLeft;
+  const NextIcon = isAr ? ArrowLeft : ArrowRight;
+
+  const goToIndex = (nextIdx) => {
+    const clamped = Math.max(0, Math.min(nextIdx, total - 1));
+    const nextTab = steps[clamped]?.tab || TOUR_STEP_TABS[clamped] || 'vault';
+    onStepChange?.(clamped, nextTab);
+  };
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 backdrop-blur-md p-4"
-        onClick={onCloseDemo}
+      <div
+        className="fixed inset-x-0 bottom-[calc(88px+env(safe-area-inset-bottom,0px))] md:bottom-6 z-[70] px-3 md:px-6 pointer-events-none flex justify-center md:justify-end"
+        role="dialog"
+        aria-label={t.tutorial.headerBadge}
       >
         <motion.div
-          initial={{ scale: 0.94, opacity: 0, y: 14 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          exit={{ scale: 0.94, opacity: 0 }}
-          onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-md rounded-3xl border border-white/15 bg-white dark:bg-[#0b1120] p-6 shadow-2xl space-y-5"
+          initial={{ opacity: 0, y: 24, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 20, scale: 0.96 }}
+          transition={{ duration: 0.22 }}
+          className="pointer-events-auto w-full max-w-md md:max-w-[390px] overflow-hidden rounded-3xl border border-emerald-500/35 bg-white/95 dark:bg-[#0b1120]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.45)]"
         >
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-extrabold text-emerald-600 dark:text-emerald-300">
-              <Sparkles className="h-3.5 w-3.5" />
-              {t.tutorial.headerBadge}
-            </span>
-            <button
-              type="button"
-              onClick={onCloseDemo}
-              className="rounded-full bg-slate-100 dark:bg-slate-800 p-1.5 text-slate-500"
-              aria-label={t.vault.close}
-            >
-              <X className="h-4 w-4" />
-            </button>
+          {/* Animated Live Step Progress Bar */}
+          <div className="h-1 w-full bg-slate-200 dark:bg-slate-800">
+            <motion.div
+              className="h-full bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-500"
+              initial={false}
+              animate={{ width: `${progressPct}%` }}
+              transition={{ duration: 0.25 }}
+            />
           </div>
 
-          {/* Slide Body */}
-          <motion.div
-            key={step}
-            initial={{ opacity: 0, x: isAr ? -18 : 18 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.22 }}
-            className={`rounded-2xl border bg-gradient-to-br p-5 space-y-3 ${current.color}`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-950/80 border border-white/10">
-                {current.icon}
-              </div>
-              <span className="rounded-full bg-white/80 dark:bg-slate-950/60 px-2.5 py-1 text-[10px] font-bold text-slate-700 dark:text-slate-200">
-                {current.badge}
-              </span>
-            </div>
-            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-              {current.title}
-            </h3>
-            <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-              {current.desc}
-            </p>
-          </motion.div>
-
-          {/* Progress Dots */}
-          <div className="flex items-center justify-center gap-1.5">
-            {slides.map((_, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => setStep(idx)}
-                className={`h-2 rounded-full transition-all ${
-                  idx === step
-                    ? 'w-7 bg-emerald-500'
-                    : 'w-2 bg-slate-300 dark:bg-slate-700'
-                }`}
-                aria-label={`Step ${idx + 1}`}
-              />
-            ))}
-          </div>
-
-          {/* Footer Navigation */}
-          {!isLast ? (
+          <div className="p-4 space-y-3">
+            {/* Compact Top Meta Row */}
             <div className="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={onCloseDemo}
-                className="rounded-xl px-3 py-2.5 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white"
-              >
-                {t.tutorial.skipDemo}
-              </button>
-              <div className="flex items-center gap-2">
-                {step > 0 && (
+              <div className="flex items-center gap-2 min-w-0">
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-extrabold truncate ${accentClass}`}>
+                  <StepIcon className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{current.badge}</span>
+                </span>
+                {!isSignedIn && safeIndex === 0 && (
+                  <span className="hidden sm:inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-300 shrink-0">
+                    {t.tutorial.demoTag}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[11px] font-bold text-slate-400 tabular-nums">
+                  {stepLabel}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onCloseDemo?.()}
+                  className="rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors"
+                  aria-label={t.tutorial.skipDemo}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Active Step Title & Description */}
+            <motion.div
+              key={safeIndex}
+              initial={{ opacity: 0, x: isAr ? -14 : 14 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.18 }}
+              className="space-y-1"
+            >
+              <h3 className="text-sm font-black text-slate-900 dark:text-white leading-snug">
+                {current.title}
+              </h3>
+              <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                {current.desc}
+              </p>
+            </motion.div>
+
+            {/* Clickable Step Dots */}
+            <div className="flex items-center justify-center gap-1.5 pt-0.5">
+              {steps.map((s, idx) => (
+                <button
+                  key={`${s.tab}-${idx}`}
+                  type="button"
+                  onClick={() => goToIndex(idx)}
+                  aria-label={s.badge}
+                  className={`h-1.5 rounded-full transition-all ${
+                    idx === safeIndex
+                      ? 'w-5 bg-emerald-500'
+                      : idx < safeIndex
+                      ? 'w-2 bg-emerald-500/45'
+                      : 'w-1.5 bg-slate-300 dark:bg-slate-700'
+                  }`}
+                />
+              ))}
+            </div>
+
+            {/* Footer Controls */}
+            {isLast && !isSignedIn ? (
+              <div className="flex flex-col sm:flex-row items-stretch gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={onGoToSignIn}
+                  className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-500 py-2.5 px-3 text-xs font-black text-slate-950 shadow-lg shadow-emerald-500/25"
+                >
+                  <UserCheck className="h-3.5 w-3.5 shrink-0" />
+                  <span>{t.tutorial.ctaSignIn}</span>
+                </button>
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setStep((s) => s - 1)}
-                    className="rounded-xl border border-slate-200 dark:border-white/10 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200"
+                    onClick={() => goToIndex(safeIndex - 1)}
+                    className="rounded-2xl border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800/70 py-2.5 px-3 text-xs font-bold text-slate-600 dark:text-slate-300 inline-flex items-center gap-1"
                   >
-                    {isAr ? <ArrowRight className="h-4 w-4" /> : <ArrowLeft className="h-4 w-4" />}
+                    <PrevIcon className="h-3.5 w-3.5" />
+                    <span>{t.tutorial.prevBtn}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onCloseDemo?.('vault')}
+                    className="flex-1 sm:flex-initial rounded-2xl border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800/70 py-2.5 px-3 text-xs font-extrabold text-slate-700 dark:text-slate-200"
+                  >
+                    {t.tutorial.ctaExploreDemo}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-2 pt-0.5">
+                {isFirst ? (
+                  <button
+                    type="button"
+                    onClick={() => onCloseDemo?.()}
+                    className="rounded-xl px-3 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  >
+                    {t.tutorial.skipDemo}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => goToIndex(safeIndex - 1)}
+                    className="inline-flex items-center gap-1 rounded-xl border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800/70 px-3 py-2 text-xs font-bold text-slate-600 dark:text-slate-200"
+                  >
+                    <PrevIcon className="h-3.5 w-3.5" />
+                    <span>{t.tutorial.prevBtn}</span>
                   </button>
                 )}
-                <motion.button
-                  whileTap={{ scale: 0.96 }}
+
+                <button
                   type="button"
-                  onClick={() => setStep((s) => s + 1)}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-5 py-2.5 text-xs font-extrabold text-slate-950 shadow-md shadow-emerald-500/25"
+                  onClick={() =>
+                    isLast ? onCloseDemo?.('vault') : goToIndex(safeIndex + 1)
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-500 px-5 py-2 text-xs font-black text-slate-950 shadow-md shadow-emerald-500/20"
                 >
-                  <span>{t.tutorial.nextBtn}</span>
-                  {isAr ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
-                </motion.button>
+                  <span>{isLast ? t.tutorial.finishBtn : t.tutorial.nextBtn}</span>
+                  {!isLast && <NextIcon className="h-3.5 w-3.5" />}
+                </button>
               </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <motion.button
-                whileTap={{ scale: 0.96 }}
-                type="button"
-                onClick={onGoToSignIn}
-                className="w-full rounded-xl bg-emerald-500 py-3 text-xs font-extrabold text-slate-950 shadow-lg shadow-emerald-500/25"
-              >
-                {t.tutorial.ctaSignIn}
-              </motion.button>
-              <button
-                type="button"
-                onClick={onCloseDemo}
-                className="w-full rounded-xl bg-slate-100 dark:bg-slate-800/80 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200"
-              >
-                {t.tutorial.ctaExploreDemo}
-              </button>
-            </div>
-          )}
+            )}
+          </div>
         </motion.div>
-      </motion.div>
+      </div>
     </AnimatePresence>
   );
 }
