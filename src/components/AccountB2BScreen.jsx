@@ -16,6 +16,9 @@ import {
   LogOut,
   UserPlus,
   BadgeCheck,
+  Eye,
+  EyeOff,
+  PlayCircle,
 } from 'lucide-react';
 import { B2B_ANALYTICS } from '../data/mockData';
 import QrCodeSvg from './QrCodeSvg';
@@ -24,6 +27,7 @@ import {
   signUpAccount,
   signOutAccount,
 } from '../utils/cloudSync';
+import { getDisplayNickname } from '../utils/userDisplay';
 
 export default function AccountB2BScreen({
   lang,
@@ -35,6 +39,7 @@ export default function AccountB2BScreen({
   t,
   user,
   onAuthChanged,
+  onReplayTour,
 }) {
   const isAr = lang === 'ar';
   const [batchBrand, setBatchBrand] = useState('LG');
@@ -49,6 +54,7 @@ export default function AccountB2BScreen({
   const [authEmail, setAuthEmail] = useState('');
   const [authIdentifier, setAuthIdentifier] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
 
@@ -81,6 +87,7 @@ export default function AccountB2BScreen({
         setAuthError(mapAuthError(res?.error));
       } else {
         setAuthPassword('');
+        setShowPassword(false);
         await onAuthChanged?.(res.user, authTab === 'signup');
       }
     } catch {
@@ -94,6 +101,7 @@ export default function AccountB2BScreen({
     setAuthLoading(true);
     await signOutAccount();
     setAuthPassword('');
+    setShowPassword(false);
     setAuthError('');
     await onAuthChanged?.(null, false);
     setAuthLoading(false);
@@ -124,7 +132,7 @@ export default function AccountB2BScreen({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
-                  {user ? user.name : t.account.userName}
+                  {user ? getDisplayNickname(user.name) : t.account.userName}
                 </h3>
                 <span
                   className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
@@ -137,6 +145,11 @@ export default function AccountB2BScreen({
                   {user ? t.account.signedInBadge : t.account.guestBadge}
                 </span>
               </div>
+              {user && getDisplayNickname(user.name) !== user.name.trim() && (
+                <p className="text-[11px] text-slate-400 truncate">
+                  {user.name}
+                </p>
+              )}
               <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5">
                 {user ? user.email : t.account.userPhone}
               </p>
@@ -169,6 +182,7 @@ export default function AccountB2BScreen({
                   setAuthTab('signin');
                   setAuthError('');
                   setAuthPassword('');
+                  setShowPassword(false);
                 }}
                 className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition-all ${
                   authTab === 'signin'
@@ -185,6 +199,7 @@ export default function AccountB2BScreen({
                   setAuthTab('signup');
                   setAuthError('');
                   setAuthPassword('');
+                  setShowPassword(false);
                 }}
                 className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition-all ${
                   authTab === 'signup'
@@ -258,14 +273,28 @@ export default function AccountB2BScreen({
                 <label className="text-[10px] font-bold text-slate-400 block mb-1">
                   {t.account.authPasswordLabel}
                 </label>
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 ps-3 pe-10 py-2 text-xs text-slate-900 dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-label={showPassword ? t.account.hidePassword : t.account.showPassword}
+                    className="absolute inset-y-0 end-0 flex items-center px-3 text-slate-400 hover:text-emerald-500 transition-colors"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </div>
 
               {authError && (
@@ -335,6 +364,32 @@ export default function AccountB2BScreen({
           </motion.button>
         </div>
       </div>
+
+      {/* Dedicated Replayable Tutorial Section */}
+      {onReplayTour && (
+        <div className="rounded-2xl border border-emerald-500/25 bg-gradient-to-br from-emerald-500/10 to-teal-500/5 p-4 space-y-2.5">
+          <div className="flex items-start gap-2.5">
+            <PlayCircle className="h-5 w-5 text-emerald-500 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">
+                {t.account.tourSectionTitle}
+              </h4>
+              <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                {t.account.tourSectionDesc}
+              </p>
+            </div>
+          </div>
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            type="button"
+            onClick={onReplayTour}
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 py-2.5 text-xs font-extrabold text-slate-950 shadow-md shadow-emerald-500/20"
+          >
+            <PlayCircle className="h-4 w-4" />
+            <span>{t.account.tourReplayBtn}</span>
+          </motion.button>
+        </div>
+      )}
 
       {/* Prominent B2B Enterprise Pitch Mode Toggle */}
       <motion.div

@@ -2,7 +2,9 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ShieldCheck,
+  QrCode,
   ScanLine,
+  FileCheck2,
   Wrench,
   MapPin,
   UserCheck,
@@ -12,20 +14,26 @@ import {
   X,
 } from 'lucide-react';
 
-export const TOUR_STEP_TABS = [
-  'vault',
-  'vault',
-  'diagnostics',
-  'scan',
-  'centers',
-  'account',
+export const TOUR_STEP_DEFS = [
+  { id: 'vault-overview', tab: 'vault' },
+  { id: 'vault-open-device', tab: 'vault' },
+  { id: 'vault-device-qr', tab: 'vault' },
+  { id: 'diagnostics-live', tab: 'diagnostics' },
+  { id: 'scan-overview', tab: 'scan' },
+  { id: 'scan-demo-preview', tab: 'scan' },
+  { id: 'centers-live', tab: 'centers' },
+  { id: 'account-signin', tab: 'account' },
 ];
+
+export const TOUR_STEP_TABS = TOUR_STEP_DEFS.map((s) => s.tab);
 
 const STEP_ICONS = [
   Sparkles,
   ShieldCheck,
+  QrCode,
   Wrench,
   ScanLine,
+  FileCheck2,
   MapPin,
   UserCheck,
 ];
@@ -33,15 +41,17 @@ const STEP_ICONS = [
 const STEP_ACCENTS = [
   'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30',
   'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30',
+  'bg-teal-500/15 text-teal-600 dark:text-teal-300 border-teal-500/30',
   'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/30',
   'bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 border-cyan-500/30',
+  'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30',
   'bg-teal-500/15 text-teal-600 dark:text-teal-300 border-teal-500/30',
   'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border-indigo-500/30',
 ];
 
 /**
- * Floating non-blocking guided tour that navigates the live app across all tabs
- * while keeping the active screen visible and interactive behind it.
+ * Floating non-blocking guided walkthrough that moves across app sections
+ * and triggers live interactive demonstrations on each screen.
  */
 export default function OnboardingTutorialModal({
   open,
@@ -55,7 +65,7 @@ export default function OnboardingTutorialModal({
 }) {
   const isAr = lang === 'ar';
   const steps = t?.tutorial?.steps || [];
-  const total = steps.length || TOUR_STEP_TABS.length;
+  const total = steps.length || TOUR_STEP_DEFS.length;
   const safeIndex = Math.max(0, Math.min(step, total - 1));
   const current = steps[safeIndex];
 
@@ -75,7 +85,8 @@ export default function OnboardingTutorialModal({
 
   const goToIndex = (nextIdx) => {
     const clamped = Math.max(0, Math.min(nextIdx, total - 1));
-    const nextTab = steps[clamped]?.tab || TOUR_STEP_TABS[clamped] || 'vault';
+    const def = TOUR_STEP_DEFS[clamped];
+    const nextTab = steps[clamped]?.tab || def?.tab || 'vault';
     onStepChange?.(clamped, nextTab);
   };
 
@@ -103,7 +114,7 @@ export default function OnboardingTutorialModal({
             />
           </div>
 
-          <div className="p-4 space-y-3">
+          <div className="p-4 space-y-2.5">
             {/* Compact Top Meta Row */}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
@@ -153,7 +164,7 @@ export default function OnboardingTutorialModal({
             <div className="flex items-center justify-center gap-1.5 pt-0.5">
               {steps.map((s, idx) => (
                 <button
-                  key={`${s.tab}-${idx}`}
+                  key={`${s.id || s.tab}-${idx}`}
                   type="button"
                   onClick={() => goToIndex(idx)}
                   aria-label={s.badge}

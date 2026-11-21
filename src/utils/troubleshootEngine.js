@@ -458,31 +458,73 @@ function detectApplianceProfile(queryLower, matchedDevice) {
 }
 
 /**
- * Universal AI Maintenance & Troubleshooting Engine for ALL home electrical appliances
- * plus automatic linking to any matching product in the user's My Vault inventory.
+ * Exclusive AI Maintenance & Troubleshooting Engine for registered electrical appliances
+ * saved in the user's My Vault inventory. Locked when 0 devices are registered.
  */
 export function diagnoseQuery({ query = '', devices = [] }) {
+  const safeDevices = Array.isArray(devices) ? devices : [];
+  if (safeDevices.length === 0) {
+    return {
+      id: 'ai-locked-empty',
+      locked: true,
+      notInVault: false,
+      matchedDevice: null,
+      profile: {
+        key: 'general',
+        hotline: '19960',
+        brandAr: '',
+        brandEn: '',
+        labelAr: '',
+        labelEn: '',
+      },
+      steps: [],
+    };
+  }
+
   const rawQuery = String(query || '').trim();
   const q = rawQuery.toLowerCase();
 
-  const matchedDevice = findMatchingVaultDevice(q, devices);
+  let matchedDevice = findMatchingVaultDevice(q, safeDevices);
   const profile = detectApplianceProfile(q, matchedDevice);
 
   if (!q) {
+    const sampleDev = safeDevices[0];
     return {
       id: 'ai-welcome-ready',
+      locked: false,
+      notInVault: false,
       code: 'AI-READY',
       matchedDevice: null,
       profile,
-      titleAr: 'مساعد الصيانة لجميع الأجهزة الكهربائية جاهز لمساعدتك',
-      titleEn: 'AI Assistant Ready for Any Electrical Appliance',
-      replyAr:
-        'اكتب اسم أي منتج مسجل عندك في «أجهزتي» أو أي جهاز كهربائي (ثلاجة، غسالة، تكييف، سخان، ميكروويف، شاشة، مكنسة، بوتاجاز...) واسأل أي سؤال عن العطل أو الصيانة أو التنظيف أو الأمان الكهربائي.',
-      replyEn:
-        'Type any product saved in your Vault or any home electrical appliance (fridge, washer, AC, water heater, microwave, TV, vacuum, cooker...) and ask anything about issues, cleaning, care, or power safety.',
+      titleAr: 'مساعد الصيانة الذكي جاهز لأجهزتك المسجلة',
+      titleEn: 'AI Assistant Ready for Your Registered Appliances',
+      replyAr: `لديك ${safeDevices.length} جهاز مسجل في «أجهزتي» — اكتب اسم أي منها (مثل: «${sampleDev.nameAr}») واسأل عن أي عطل، طريقة تنظيف، أو صيانة.`,
+      replyEn: `You have ${safeDevices.length} appliance(s) in My Vault — type any device name (e.g., "${sampleDev.nameEn}") and ask about issues, cleaning, or maintenance.`,
       savedEgp: 500,
       steps: GENERAL_APPLIANCE_KB[7].steps,
     };
+  }
+
+  // Gate: do not diagnose a named electrical appliance category absent from the user's Vault
+  if (!matchedDevice && profile.key !== 'general') {
+    const hasCategoryInVault = safeDevices.some(
+      (d) => (d.category || '').toLowerCase() === profile.key
+    );
+    if (!hasCategoryInVault) {
+      return {
+        id: 'ai-not-in-vault',
+        locked: false,
+        notInVault: true,
+        matchedDevice: null,
+        profile,
+        steps: [],
+      };
+    }
+    matchedDevice = safeDevices.find(
+      (d) => (d.category || '').toLowerCase() === profile.key
+    ) || null;
+  } else if (!matchedDevice && safeDevices.length === 1) {
+    matchedDevice = safeDevices[0];
   }
 
   // 1. Check if query contains a known OEM error code (OE, E4, 22E, CH05, etc.)

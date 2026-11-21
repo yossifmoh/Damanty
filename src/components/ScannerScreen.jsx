@@ -48,6 +48,7 @@ export default function ScannerScreen({
   t,
   onAddDevice,
   onAddMaintenanceRecord,
+  tourStepId = null,
 }) {
   const isAr = lang === 'ar';
   const [mode, setMode] = useState('ocr'); // 'ocr' | 'antifake'
@@ -58,6 +59,7 @@ export default function ScannerScreen({
 
   // Camera state
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraPromptOpen, setCameraPromptOpen] = useState(false);
   const [facingMode, setFacingMode] = useState('environment');
   const [cameraError, setCameraError] = useState('');
   const videoRef = useRef(null);
@@ -65,8 +67,12 @@ export default function ScannerScreen({
 
   // File input refs
   const galleryInputRef = useRef(null);
+  const nativeCameraInputRef = useRef(null);
   const docInputRef = useRef(null);
   const qrGalleryInputRef = useRef(null);
+  const demoInjectedRef = useRef(false);
+  const prevTourStepRef = useRef(null);
+  const extractedRef = useRef(null);
 
   // Processing & result state
   const [scanning, setScanning] = useState(false);
@@ -98,35 +104,125 @@ export default function ScannerScreen({
     };
   }, [stopCamera]);
 
-  const startCamera = async (targetFacing = facingMode) => {
+  // Attach MediaStream cleanly once full-screen video element commits to DOM
+  useEffect(() => {
+    if (cameraActive && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [cameraActive]);
+
+  // Guided Tour live demo & preview wiring for Smart Scan
+  useEffect(() => {
+    if (prevTourStepRef.current === tourStepId) return;
+    prevTourStepRef.current = tourStepId;
+
+    if (tourStepId === 'scan-overview') {
+      stopCamera();
+      setCameraPromptOpen(false);
+      setMode('ocr');
+      if (demoInjectedRef.current) {
+        demoInjectedRef.current = false;
+        setOcrResult(null);
+      }
+    } else if (tourStepId === 'scan-demo-preview') {
+      stopCamera();
+      setCameraPromptOpen(false);
+      setMode('ocr');
+      setSelectedPresetId(OCR_SAMPLE_PRESETS[0].id);
+      demoInjectedRef.current = true;
+      setSaveTarget('new');
+      setOcrResult({
+        ...OCR_SAMPLE_PRESETS[0].device,
+        id: 'dev-tour-demo',
+      });
+      setTimeout(() => {
+        if (window.innerWidth < 768) {
+          extractedRef.current?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          });
+        }
+      }, 220);
+    } else if (demoInjectedRef.current) {
+      demoInjectedRef.current = false;
+      setOcrResult(null);
+    }
+  }, [tourStepId, stopCamera]);
+
+  const requestLiveCamera = async (targetFacing = facingMode) => {
     setCameraError('');
+    setCameraPromptOpen(false);
     stopCamera();
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError(t.scanner.cameraError);
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: targetFacing },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
+      let stream = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: targetFacing },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch (constraintErr) {
+        if (
+          constraintErr?.name === 'NotAllowedError' ||
+          constraintErr?.name === 'PermissionDeniedError'
+        ) {
+          throw constraintErr;
+        }
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
       streamRef.current = stream;
       setCameraActive(true);
       setPreviewUrl(null);
-      requestAnimationFrame(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      });
-    } catch {
-      setCameraError(t.scanner.cameraError);
+    } catch (err) {
+      const name = err?.name || '';
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        setCameraError(
+          isAr
+            ? 'تم منع إذن الكاميرا من إعدادات المتصفح — اضغط أيقونة القفل بجانب رابط الموقع لتفعيل الكاميرا أو استخدم كاميرا الجهاز بالزر أدناه.'
+            : 'Camera access was blocked in browser settings — allow Camera in the address-bar lock icon or capture directly below.'
+        );
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        setCameraError(
+          isAr
+            ? 'لم يتم العثور على كاميرا متصلة حالياً — يمكنك استخدام كاميرا الموبايل مباشرة أو رفع صورة الفاتورة.'
+            : 'No live camera detected — use native device camera capture or upload a receipt image.'
+        );
+      } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+        setCameraError(
+          isAr
+            ? 'الكاميرا مستخدمة حالياً في تطبيق آخر — أغلق التطبيق الآخر أو التقط الصورة مباشرة بالزر أدناه.'
+            : 'Camera is currently busy in another app — close it or use native capture below.'
+        );
+      } else {
+        setCameraError(t.scanner.cameraError);
+      }
       setCameraActive(false);
     }
+  };
+
+  const openCameraFlow = async () => {
+    setCameraError('');
+    try {
+      const perm = await navigator.permissions?.query?.({ name: 'camera' });
+      if (perm?.state === 'granted') {
+        await requestLiveCamera(facingMode);
+        return;
+      }
+    } catch {
+      // Safari / browsers without permissions query -> show branded app permission card
+    }
+    setCameraPromptOpen(true);
   };
 
   const evaluateQrPayload = useCallback((payload) => {
@@ -371,6 +467,17 @@ export default function ScannerScreen({
         }}
       />
       <input
+        ref={nativeCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          handleFileUpload(e.target.files?.[0]);
+          e.target.value = '';
+        }}
+      />
+      <input
         ref={docInputRef}
         type="file"
         accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -411,19 +518,8 @@ export default function ScannerScreen({
               dragOver ? 'border-emerald-400 ring-2 ring-emerald-400/50' : 'border-emerald-500/30'
             }`}
           >
-            {/* Live Video Feed */}
-            {cameraActive && (
-              <video
-                ref={videoRef}
-                playsInline
-                muted
-                autoPlay
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-            )}
-
             {/* Captured / Uploaded File Preview */}
-            {!cameraActive && previewUrl && (
+            {previewUrl && (
               <img
                 src={previewUrl}
                 alt="Receipt preview"
@@ -432,7 +528,7 @@ export default function ScannerScreen({
             )}
 
             {/* Subtle grid background when idle */}
-            {!cameraActive && !previewUrl && (
+            {!previewUrl && (
               <div
                 className="absolute inset-0 opacity-20"
                 style={{
@@ -451,7 +547,7 @@ export default function ScannerScreen({
             </div>
 
             {/* Animated Scanning Laser Beam */}
-            {(cameraActive || scanning || !previewUrl) && (
+            {(scanning || !previewUrl) && (
               <motion.div
                 animate={{ y: [20, 225, 20] }}
                 transition={{
@@ -463,32 +559,8 @@ export default function ScannerScreen({
               />
             )}
 
-            {/* Top Camera Overlay Controls */}
-            {cameraActive && (
-              <div className="absolute top-3 inset-x-3 z-20 flex items-center justify-between">
-                <button
-                  onClick={stopCamera}
-                  className="rounded-full bg-black/60 backdrop-blur-md p-2 text-white hover:bg-black/80"
-                  aria-label={t.scanner.stopCamera}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={() => {
-                    const next = facingMode === 'environment' ? 'user' : 'environment';
-                    setFacingMode(next);
-                    startCamera(next);
-                  }}
-                  className="inline-flex items-center gap-1 rounded-full bg-black/60 backdrop-blur-md px-3 py-1.5 text-[11px] font-bold text-white"
-                >
-                  <SwitchCamera className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>{t.scanner.switchCamera}</span>
-                </button>
-              </div>
-            )}
-
             {/* Center Idle / Scanning Overlay */}
-            {!cameraActive && (scanning || !previewUrl) && (
+            {(scanning || !previewUrl) && (
               <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center bg-slate-950/40">
                 {scanning ? (
                   <div className="space-y-3 w-full max-w-[230px]">
@@ -513,27 +585,19 @@ export default function ScannerScreen({
                 )}
               </div>
             )}
-
-            {/* Live Camera Bottom Shutter Button */}
-            {cameraActive && (
-              <div className="absolute bottom-3 inset-x-0 z-20 flex justify-center px-4">
-                <motion.button
-                  whileTap={{ scale: 0.94 }}
-                  onClick={captureFromCamera}
-                  className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-xs font-extrabold text-slate-950 shadow-xl shadow-emerald-500/40"
-                >
-                  <Camera className="h-4 w-4" />
-                  <span>
-                    {mode === 'ocr' ? t.scanner.capturePhoto : t.scanner.captureQr}
-                  </span>
-                </motion.button>
-              </div>
-            )}
           </div>
 
           {cameraError && (
-            <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs font-medium text-amber-700 dark:text-amber-300">
-              {cameraError}
+            <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs space-y-2 text-amber-700 dark:text-amber-300">
+              <p className="font-medium leading-relaxed">{cameraError}</p>
+              <button
+                type="button"
+                onClick={() => nativeCameraInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-[11px] font-extrabold text-slate-950"
+              >
+                <Camera className="h-3.5 w-3.5" />
+                <span>{isAr ? 'فتح كاميرا الجهاز مباشرة' : 'Use Native Device Camera'}</span>
+              </button>
             </div>
           )}
 
@@ -542,7 +606,7 @@ export default function ScannerScreen({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <motion.button
                 whileTap={{ scale: 0.96 }}
-                onClick={() => (cameraActive ? stopCamera() : startCamera())}
+                onClick={() => (cameraActive ? stopCamera() : openCameraFlow())}
                 className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 px-3 text-xs font-extrabold text-slate-950 shadow-md shadow-emerald-500/20"
               >
                 <Camera className="h-4 w-4" />
@@ -573,7 +637,7 @@ export default function ScannerScreen({
             <div className="grid grid-cols-2 gap-2">
               <motion.button
                 whileTap={{ scale: 0.96 }}
-                onClick={() => (cameraActive ? stopCamera() : startCamera())}
+                onClick={() => (cameraActive ? stopCamera() : openCameraFlow())}
                 className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 px-3 text-xs font-extrabold text-slate-950 shadow-md shadow-emerald-500/20"
               >
                 <Camera className="h-4 w-4" />
@@ -628,9 +692,15 @@ export default function ScannerScreen({
               ) : (
                 <AnimatePresence>
                   <motion.div
+                    ref={extractedRef}
+                    id="tour-scan-extracted"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4 space-y-3"
+                    className={`scroll-mt-20 rounded-2xl border bg-emerald-500/10 p-4 space-y-3 transition-all ${
+                      tourStepId === 'scan-demo-preview'
+                        ? 'border-emerald-400 ring-2 ring-emerald-400/70'
+                        : 'border-emerald-500/40'
+                    }`}
                   >
                     <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-300">
                       <CheckCircle2 className="h-5 w-5 shrink-0" />
@@ -994,6 +1064,184 @@ export default function ScannerScreen({
           )}
         </div>
       </div>
+
+      {/* Branded In-App Camera Permission Prompt Dialog */}
+      <AnimatePresence>
+        {cameraPromptOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 backdrop-blur-md p-4"
+            onClick={() => setCameraPromptOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.94, opacity: 0, y: 12 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.94, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-3xl border border-emerald-500/35 bg-white dark:bg-[#0b1120] p-6 shadow-2xl text-center space-y-4"
+            >
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-500">
+                <Camera className="h-7 w-7" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  {isAr ? 'إذن فتح الكاميرا — ضمنتي' : 'Allow Camera Access — Damanty'}
+                </h3>
+                <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                  {isAr
+                    ? 'يحتاج ضمنتي إذن الكاميرا لتصوير فاتورة الضمان أو فحص كود QR مباشرة من داخل التطبيق بأمان.'
+                    : 'Damanty needs camera access to snap warranty receipts and verify spare-part QR codes directly inside the app.'}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 pt-1">
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  type="button"
+                  onClick={() => requestLiveCamera(facingMode)}
+                  className="w-full rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-500 py-3 text-xs font-black text-slate-950 shadow-lg shadow-emerald-500/25"
+                >
+                  {isAr ? 'موافق — فتح الكاميرا (Accept)' : 'Accept & Open Camera'}
+                </motion.button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCameraPromptOpen(false);
+                      nativeCameraInputRef.current?.click();
+                    }}
+                    className="flex-1 rounded-xl border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800/70 py-2.5 text-[11px] font-bold text-slate-700 dark:text-slate-200"
+                  >
+                    {isAr ? 'كاميرا الجهاز' : 'Device Camera'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCameraPromptOpen(false)}
+                    className="flex-1 rounded-xl border border-slate-200 dark:border-white/15 py-2.5 text-[11px] font-bold text-slate-500 dark:text-slate-400"
+                  >
+                    {isAr ? 'إلغاء' : 'Cancel'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Full-Screen App-Native Interactive Camera Viewfinder Modal */}
+      <AnimatePresence>
+        {cameraActive && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[65] bg-black flex flex-col justify-between"
+          >
+            {/* Top Bar */}
+            <div className="relative z-20 flex items-center justify-between px-4 pt-safe py-3 bg-gradient-to-b from-black/80 to-transparent">
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="rounded-full bg-white/15 backdrop-blur-md p-2.5 text-white hover:bg-white/25"
+                aria-label={t.scanner.stopCamera}
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 px-3 py-1 text-xs font-extrabold text-emerald-300">
+                <ScanLine className="h-3.5 w-3.5" />
+                {mode === 'ocr'
+                  ? isAr
+                    ? 'كاميرا ضمنتي — مسح الفاتورة'
+                    : 'Damanty Cam — Receipt Scan'
+                  : isAr
+                  ? 'كاميرا ضمنتي — فحص QR'
+                  : 'Damanty Cam — Verify QR'}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const next = facingMode === 'environment' ? 'user' : 'environment';
+                  setFacingMode(next);
+                  requestLiveCamera(next);
+                }}
+                className="inline-flex items-center gap-1 rounded-full bg-white/15 backdrop-blur-md px-3 py-2 text-xs font-bold text-white"
+              >
+                <SwitchCamera className="h-4 w-4 text-emerald-400" />
+                <span className="hidden sm:inline">{t.scanner.switchCamera}</span>
+              </button>
+            </div>
+
+            {/* Live Full Camera Stream + AR Frame Reticle */}
+            <div className="relative flex-1 overflow-hidden flex items-center justify-center">
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                autoPlay
+                className="h-full w-full object-cover"
+              />
+              <div className="pointer-events-none absolute inset-x-8 inset-y-12 md:inset-x-24 md:inset-y-16">
+                <div className="absolute top-0 left-0 h-10 w-10 border-t-4 border-l-4 border-emerald-400 rounded-tl-2xl" />
+                <div className="absolute top-0 right-0 h-10 w-10 border-t-4 border-r-4 border-emerald-400 rounded-tr-2xl" />
+                <div className="absolute bottom-0 left-0 h-10 w-10 border-b-4 border-l-4 border-emerald-400 rounded-bl-2xl" />
+                <div className="absolute bottom-0 right-0 h-10 w-10 border-b-4 border-r-4 border-emerald-400 rounded-br-2xl" />
+                <motion.div
+                  animate={{ y: ['10%', '85%', '10%'] }}
+                  transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+                  className="h-0.5 w-full bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_16px_4px_rgba(16,185,129,0.75)]"
+                />
+              </div>
+            </div>
+
+            {/* Native-Style Camera Bottom Shutter Deck */}
+            <div className="relative z-20 flex items-center justify-around px-6 pb-safe py-5 bg-gradient-to-t from-black/90 via-black/70 to-transparent">
+              <button
+                type="button"
+                onClick={() => {
+                  stopCamera();
+                  galleryInputRef.current?.click();
+                }}
+                className="flex flex-col items-center gap-1 text-white/85 hover:text-white"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-md">
+                  <ImageIcon className="h-5 w-5" />
+                </span>
+                <span className="text-[10px] font-bold">
+                  {isAr ? 'المعرض' : 'Gallery'}
+                </span>
+              </button>
+
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                type="button"
+                onClick={captureFromCamera}
+                aria-label={mode === 'ocr' ? t.scanner.capturePhoto : t.scanner.captureQr}
+                className="flex h-[72px] w-[72px] items-center justify-center rounded-full border-4 border-white p-1.5 shadow-2xl shadow-emerald-500/40"
+              >
+                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400 text-slate-950">
+                  <Camera className="h-6 w-6 stroke-[2.4]" />
+                </span>
+              </motion.button>
+
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="flex flex-col items-center gap-1 text-white/85 hover:text-white"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-md">
+                  <X className="h-5 w-5" />
+                </span>
+                <span className="text-[10px] font-bold">
+                  {isAr ? 'إغلاق' : 'Close'}
+                </span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

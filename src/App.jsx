@@ -18,8 +18,10 @@ import DiagnosticsScreen from './components/DiagnosticsScreen';
 import CentersScreen from './components/CentersScreen';
 import AccountB2BScreen from './components/AccountB2BScreen';
 import OnboardingTutorialModal, {
+  TOUR_STEP_DEFS,
   TOUR_STEP_TABS,
 } from './components/OnboardingTutorialModal';
+import { getDisplayNickname } from './utils/userDisplay';
 import {
   savePhotoDoc,
   getAllPhotoCounts,
@@ -50,14 +52,33 @@ function getInitialTabFromUrl() {
 
 const STORAGE_KEYS = {
   DEVICES: 'damanty_devices_v1',
+  CACHED_USER: 'damanty_last_user_v1',
   LANG: 'damanty_lang_v1',
   THEME: 'damanty_theme_v1',
   B2B: 'damanty_b2b_v1',
 };
 
+function readInitialCachedUser() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.CACHED_USER);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.id && parsed?.name ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
+  const [user, setUser] = useState(readInitialCachedUser);
+
   const [devices, setDevices] = useState(() => {
     try {
+      const cachedUser = readInitialCachedUser();
+      if (cachedUser?.id) {
+        const userSaved = localStorage.getItem(`damanty_devices_${cachedUser.id}`);
+        return userSaved ? JSON.parse(userSaved) : [];
+      }
       const saved = localStorage.getItem(STORAGE_KEYS.DEVICES);
       return saved ? JSON.parse(saved) : INITIAL_DEVICES;
     } catch {
@@ -81,7 +102,6 @@ export default function App() {
   const [liveBanner, setLiveBanner] = useState(null);
   const [diagDeviceId, setDiagDeviceId] = useState(null);
   const [photoCounts, setPhotoCounts] = useState({});
-  const [user, setUser] = useState(null);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
   const mainScrollRef = useRef(null);
@@ -142,7 +162,15 @@ export default function App() {
       if (VALID_TABS.includes(nextTab)) {
         setActiveTab(nextTab);
       }
-      scrollToTop();
+      const nextId = TOUR_STEP_DEFS[nextStep]?.id;
+      if (
+        nextId === 'vault-overview' ||
+        nextId === 'scan-overview' ||
+        nextId === 'centers-live' ||
+        nextId === 'account-signin'
+      ) {
+        scrollToTop();
+      }
     },
     [scrollToTop]
   );
@@ -151,7 +179,7 @@ export default function App() {
     (targetTab) => {
       setTutorialOpen(false);
       try {
-        localStorage.setItem('damanty_tutorial_seen_v2', 'true');
+        localStorage.setItem('damanty_tutorial_seen_v3', 'true');
       } catch {
         // Ignore storage error
       }
@@ -189,6 +217,7 @@ export default function App() {
 
       if (sessionUser) {
         try {
+          localStorage.setItem(STORAGE_KEYS.CACHED_USER, JSON.stringify(sessionUser));
           const cached = localStorage.getItem(getDevicesStorageKey(sessionUser));
           if (cached) setDevices(JSON.parse(cached));
           else setDevices([]);
@@ -197,13 +226,16 @@ export default function App() {
         }
       } else {
         try {
-          if (!localStorage.getItem('damanty_tutorial_seen_v2')) {
+          localStorage.removeItem(STORAGE_KEYS.CACHED_USER);
+          const guestSaved = localStorage.getItem(STORAGE_KEYS.DEVICES);
+          setDevices(guestSaved ? JSON.parse(guestSaved) : INITIAL_DEVICES);
+          if (!localStorage.getItem('damanty_tutorial_seen_v3')) {
             setTutorialStep(0);
             setActiveTab('vault');
             setTutorialOpen(true);
           }
         } catch {
-          // Ignore storage error
+          setDevices(INITIAL_DEVICES);
         }
       }
 
@@ -227,7 +259,12 @@ export default function App() {
   const handleAuthChanged = async (newUser, isSignUp) => {
     setUser(newUser);
     if (!newUser) {
-      // Signed out -> restore Guest Demo vault and clear stale banners
+      // Signed out -> clear cached user, restore Guest Demo vault & banners
+      try {
+        localStorage.removeItem(STORAGE_KEYS.CACHED_USER);
+      } catch {
+        // Ignore storage error
+      }
       setLiveBanner(null);
       try {
         const guestSaved = localStorage.getItem(STORAGE_KEYS.DEVICES);
@@ -242,13 +279,20 @@ export default function App() {
       return;
     }
 
+    try {
+      localStorage.setItem(STORAGE_KEYS.CACHED_USER, JSON.stringify(newUser));
+    } catch {
+      // Ignore storage error
+    }
+    const nickname = getDisplayNickname(newUser.name);
+
     if (isSignUp) {
       // New user starts with a clean private vault
       setDevices([]);
       setLiveBanner(
         isAr
-          ? `أهلاً بك يا ${newUser.name}! خزنتك الشخصية جاهزة الآن.`
-          : `Welcome, ${newUser.name}! Your private vault is ready.`
+          ? `أهلاً بك يا ${nickname}! خزنتك الشخصية جاهزة الآن.`
+          : `Welcome, ${nickname}! Your private vault is ready.`
       );
       navigateTab('vault');
       return;
@@ -267,9 +311,7 @@ export default function App() {
       }
     }
     setLiveBanner(
-      isAr
-        ? `تم تسجيل الدخول باسم ${newUser.name}`
-        : `Signed in as ${newUser.name}`
+      isAr ? `تم تسجيل الدخول باسم ${nickname}` : `Signed in as ${nickname}`
     );
     navigateTab('vault');
   };
@@ -277,6 +319,7 @@ export default function App() {
   const t = TRANSLATIONS[lang] || TRANSLATIONS.ar;
   const isAr = lang === 'ar';
   const tourTab = tutorialOpen ? TOUR_STEP_TABS[tutorialStep] : null;
+  const tourStepId = tutorialOpen ? TOUR_STEP_DEFS[tutorialStep]?.id || null : null;
 
   // Sync HTML dir, lang, and dark class
   useEffect(() => {
@@ -548,7 +591,7 @@ export default function App() {
               <div className="flex items-center gap-2 min-w-0">
                 <UserCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
                 <span className="text-xs font-bold truncate text-slate-800 dark:text-slate-100">
-                  {user ? user.name : t.account.signInBtn}
+                  {user ? getDisplayNickname(user.name) : t.account.signInBtn}
                 </span>
               </div>
               <span
@@ -629,11 +672,11 @@ export default function App() {
               <motion.button
                 whileTap={{ scale: 0.92 }}
                 onClick={() => navigateTab('account')}
-                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 max-w-[96px]"
+                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 max-w-[132px]"
               >
                 <UserCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                 <span className="truncate">
-                  {user ? user.name.split(' ')[0] : isAr ? 'دخول' : 'Sign In'}
+                  {user ? getDisplayNickname(user.name) : isAr ? 'دخول' : 'Sign In'}
                 </span>
               </motion.button>
               <motion.button
@@ -691,6 +734,7 @@ export default function App() {
                       onUpdateDevice={handleUpdateDevice}
                       onDeleteDevice={handleDeleteDevice}
                       onClaimedDevice={handleClaimedDevice}
+                      tourStepId={tourStepId}
                     />
                   )}
                   {activeTab === 'diagnostics' && (
@@ -699,6 +743,8 @@ export default function App() {
                       lang={lang}
                       t={t}
                       preselectedDeviceId={diagDeviceId}
+                      onNavigateScan={() => navigateTab('scan')}
+                      tourStepId={tourStepId}
                     />
                   )}
                   {activeTab === 'scan' && (
@@ -708,6 +754,7 @@ export default function App() {
                       t={t}
                       onAddDevice={handleAddDevice}
                       onAddMaintenanceRecord={handleAddMaintenanceRecord}
+                      tourStepId={tourStepId}
                     />
                   )}
                   {activeTab === 'centers' && <CentersScreen lang={lang} t={t} />}
@@ -724,6 +771,7 @@ export default function App() {
                       t={t}
                       user={user}
                       onAuthChanged={handleAuthChanged}
+                      onReplayTour={openTour}
                     />
                   )}
                 </motion.div>

@@ -69,6 +69,7 @@ export default function VaultScreen({
   onUpdateDevice,
   onDeleteDevice,
   onClaimedDevice,
+  tourStepId = null,
 }) {
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -85,6 +86,38 @@ export default function VaultScreen({
   const [claimError, setClaimError] = useState('');
   const [claimLoading, setClaimLoading] = useState(false);
   const attachInputRef = useRef(null);
+  const openedByTourRef = useRef(false);
+  const prevTourStepRef = useRef(null);
+  const certModalScrollRef = useRef(null);
+
+  // Sync interactive guided tour device preview & 3D QR flip
+  useEffect(() => {
+    if (prevTourStepRef.current === tourStepId) return;
+    prevTourStepRef.current = tourStepId;
+
+    if (tourStepId === 'vault-open-device' || tourStepId === 'vault-device-qr') {
+      const target =
+        devices.find((d) => d.id === 'dev-sharp-tv') || devices[0] || null;
+      if (target) {
+        openedByTourRef.current = true;
+        setSelectedDevice(target);
+        setIsFlipped(tourStepId === 'vault-device-qr');
+        setEditingDevice(null);
+        setConfirmDelete(false);
+        setTimeout(() => {
+          if (certModalScrollRef.current) {
+            certModalScrollRef.current.scrollTop = 0;
+          }
+        }, 60);
+      }
+    } else if (openedByTourRef.current) {
+      openedByTourRef.current = false;
+      setSelectedDevice(null);
+      setIsFlipped(false);
+      setEditingDevice(null);
+      setConfirmDelete(false);
+    }
+  }, [tourStepId, devices]);
 
   // Sync browser Back button with open modals & lightbox
   useEffect(() => {
@@ -212,6 +245,7 @@ export default function VaultScreen({
   const expiringDevice = devices.find((d) => d.status === 'expiring_soon');
 
   const openCertificate = (device) => {
+    openedByTourRef.current = false;
     setSelectedDevice(device);
     setIsFlipped(false);
     setTransferCode(null);
@@ -227,6 +261,7 @@ export default function VaultScreen({
   };
 
   const closeCertificate = () => {
+    openedByTourRef.current = false;
     if (window.history.state?.modal === 'cert' || window.history.state?.modal === 'lightbox') {
       window.history.back();
     } else {
@@ -361,16 +396,24 @@ export default function VaultScreen({
               <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                   {t.vault.protectionScore}
                 </span>
-                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-300">
-                  {protectionScore}% {t.vault.protected}
-                </span>
+                {devices.length > 0 ? (
+                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-300">
+                    {protectionScore}% {t.vault.protected}
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-300">
+                    {t.vault.vaultReadyBadge}
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {devices.length} {t.vault.devicesCount}
+                {devices.length > 0
+                  ? `${devices.length} ${t.vault.devicesCount}`
+                  : t.vault.vaultReadyHint}
               </p>
             </div>
           </div>
@@ -503,6 +546,9 @@ export default function VaultScreen({
               <span>{t.vault.emptyVaultBtn}</span>
             </motion.button>
           )}
+          <p className="text-[11px] text-slate-400 dark:text-slate-400 max-w-xs mx-auto pt-1">
+            {t.vault.claimEmptyTip}
+          </p>
         </motion.div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -630,6 +676,7 @@ export default function VaultScreen({
             onClick={closeCertificate}
           >
             <motion.div
+              ref={certModalScrollRef}
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
@@ -1155,6 +1202,9 @@ export default function VaultScreen({
                   <X className="h-4 w-4 text-slate-500" />
                 </button>
               </div>
+              <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                {t.vault.claimTransferDesc}
+              </p>
               <form onSubmit={handleClaimSubmit} className="space-y-3 text-xs">
                 <input
                   type="text"
