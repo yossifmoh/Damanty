@@ -125,8 +125,13 @@ export default function App() {
   }, []);
 
   const openTour = useCallback(() => {
+    const startTab = TOUR_STEP_TABS[0] || 'vault';
     setTutorialStep(0);
-    setActiveTab(TOUR_STEP_TABS[0] || 'vault');
+    if (window.history.state?.tab !== startTab) {
+      const url = startTab === 'vault' ? window.location.pathname : `?tab=${startTab}`;
+      window.history.pushState({ tab: startTab, modal: null }, '', url);
+    }
+    setActiveTab(startTab);
     setTutorialOpen(true);
     scrollToTop();
   }, [scrollToTop]);
@@ -146,7 +151,7 @@ export default function App() {
     (targetTab) => {
       setTutorialOpen(false);
       try {
-        localStorage.setItem('damanty_tutorial_seen_v1', 'true');
+        localStorage.setItem('damanty_tutorial_seen_v2', 'true');
       } catch {
         // Ignore storage error
       }
@@ -192,7 +197,7 @@ export default function App() {
         }
       } else {
         try {
-          if (!localStorage.getItem('damanty_tutorial_seen_v1')) {
+          if (!localStorage.getItem('damanty_tutorial_seen_v2')) {
             setTutorialStep(0);
             setActiveTab('vault');
             setTutorialOpen(true);
