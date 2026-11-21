@@ -1198,6 +1198,7 @@ export default function VaultScreen({
                 <button
                   onClick={closeClaimModal}
                   className="rounded-full bg-slate-100 dark:bg-slate-800 p-1.5"
+                  aria-label={t.vault.close}
                 >
                   <X className="h-4 w-4 text-slate-500" />
                 </button>

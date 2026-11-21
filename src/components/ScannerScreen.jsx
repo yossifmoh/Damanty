@@ -213,16 +213,60 @@ export default function ScannerScreen({
 
   const openCameraFlow = async () => {
     setCameraError('');
+    const isMobileDevice =
+      typeof navigator !== 'undefined' &&
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+    let alreadyAccepted = false;
     try {
-      const perm = await navigator.permissions?.query?.({ name: 'camera' });
-      if (perm?.state === 'granted') {
-        await requestLiveCamera(facingMode);
+      alreadyAccepted = localStorage.getItem('damanty_cam_accepted_v1') === 'true';
+    } catch {
+      // Ignore storage error
+    }
+
+    if (alreadyAccepted) {
+      if (isMobileDevice) {
+        nativeCameraInputRef.current?.click();
         return;
       }
-    } catch {
-      // Safari / browsers without permissions query -> show branded app permission card
+      await requestLiveCamera(facingMode);
+      return;
+    }
+
+    if (!isMobileDevice) {
+      try {
+        const perm = await navigator.permissions?.query?.({ name: 'camera' });
+        if (perm?.state === 'granted') {
+          try {
+            localStorage.setItem('damanty_cam_accepted_v1', 'true');
+          } catch {
+            // Ignore storage error
+          }
+          await requestLiveCamera(facingMode);
+          return;
+        }
+      } catch {
+        // Safari / browsers without permissions query -> show branded app permission card
+      }
     }
     setCameraPromptOpen(true);
+  };
+
+  const handleAcceptCameraPermission = () => {
+    try {
+      localStorage.setItem('damanty_cam_accepted_v1', 'true');
+    } catch {
+      // Ignore storage error
+    }
+    setCameraPromptOpen(false);
+    const isMobileDevice =
+      typeof navigator !== 'undefined' &&
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    if (isMobileDevice) {
+      nativeCameraInputRef.current?.click();
+      return;
+    }
+    requestLiveCamera(facingMode);
   };
 
   const evaluateQrPayload = useCallback((payload) => {
@@ -1099,30 +1143,18 @@ export default function ScannerScreen({
                 <motion.button
                   whileTap={{ scale: 0.97 }}
                   type="button"
-                  onClick={() => requestLiveCamera(facingMode)}
+                  onClick={handleAcceptCameraPermission}
                   className="w-full rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-500 py-3 text-xs font-black text-slate-950 shadow-lg shadow-emerald-500/25"
                 >
-                  {isAr ? 'موافق — فتح الكاميرا (Accept)' : 'Accept & Open Camera'}
+                  {isAr ? 'موافق — فتح الكاميرا' : 'Accept & Open Camera'}
                 </motion.button>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCameraPromptOpen(false);
-                      nativeCameraInputRef.current?.click();
-                    }}
-                    className="flex-1 rounded-xl border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800/70 py-2.5 text-[11px] font-bold text-slate-700 dark:text-slate-200"
-                  >
-                    {isAr ? 'كاميرا الجهاز' : 'Device Camera'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCameraPromptOpen(false)}
-                    className="flex-1 rounded-xl border border-slate-200 dark:border-white/15 py-2.5 text-[11px] font-bold text-slate-500 dark:text-slate-400"
-                  >
-                    {isAr ? 'إلغاء' : 'Cancel'}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setCameraPromptOpen(false)}
+                  className="w-full rounded-xl border border-slate-200 dark:border-white/15 py-2.5 text-[11px] font-bold text-slate-500 dark:text-slate-400"
+                >
+                  {isAr ? 'إلغاء' : 'Cancel'}
+                </button>
               </div>
             </motion.div>
           </motion.div>

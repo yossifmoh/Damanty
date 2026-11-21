@@ -86,6 +86,37 @@ const APPLIANCE_PROFILES = [
 
 const GENERAL_APPLIANCE_KB = [
   {
+    id: 'kb-dryer-heat',
+    category: 'washer',
+    keywords: ['مجفف', 'دراير', 'تجفيف', 'بيجفف', 'لا يسخن', 'مش بيسخن', 'heat pump', 'dryer', 'drying'],
+    mustMatchGroup: ['مجفف', 'دراير', 'تجفيف', 'بيجفف', 'dryer', 'heat pump', 'drying'],
+    code: 'DRYER-HEAT',
+    titleAr: 'ضعف التجفيف أو عدم تسخين مجفف الملابس (Heat Pump)',
+    titleEn: 'Dryer Weak Heating or Clothes Stay Damp',
+    savedEgp: 550,
+    summaryAr:
+      'أكثر سبب لضعف تجفيف المجففات هو امتلاء فلتر الوبر أو خزان المياه المتكثفة أو حاجة المكثف السفلي للتنظيف.',
+    summaryEn:
+      'In heat-pump dryers, clogged dual lint filters, a full water tank, or dirty condenser fins are the main cause of weak drying.',
+    steps: [
+      {
+        id: 'dr1',
+        ar: 'افتح فلتر الوبر الداخلي على حافة الباب ونظف الشبكتين تماماً من أي أوبار متراكمة.',
+        en: 'Clean both layers of the inner door lint filter thoroughly before every drying cycle.',
+      },
+      {
+        id: 'dr2',
+        ar: 'أفرغ درج المياه المتكثفة العلوي (Water Container) وتأكد أن باب المكثف السفلي مُحكم القفل.',
+        en: 'Empty the top condensate water tank and check that the lower condenser cover is latched tight.',
+      },
+      {
+        id: 'dr3',
+        ar: 'نظّف زعانف المكثف السفلي بالفرشاة الناعمة أو المكنسة وتأكد من عصر الغسيل جيداً قبل نقله للمجفف.',
+        en: 'Gently vacuum dust from the lower condenser fins and use high spin speed in the washer beforehand.',
+      },
+    ],
+  },
+  {
     id: 'kb-ac-water',
     category: 'ac',
     keywords: ['مية', 'ماء', 'ينقط', 'تنقيط', 'خرطوم', 'تكييف', 'water', 'leak', 'drip', 'drain'],
