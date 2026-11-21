@@ -27,6 +27,7 @@ import {
   detectQrFromDataUrl,
 } from '../utils/receiptScanner';
 import { reportFraudOnCloud } from '../utils/cloudSync';
+import { getTourBlockClass } from '../utils/tourFocus';
 
 function computeExpiryAndDays(purchaseDate, years) {
   const base = new Date(`${purchaseDate}T00:00:00`);
@@ -466,9 +467,12 @@ export default function ScannerScreen({
     setRawText('');
   };
 
+  const isScanTour =
+    tourStepId === 'scan-overview' || tourStepId === 'scan-demo-preview';
+
   return (
     <div className="space-y-4 pb-28 md:pb-10">
-      <div>
+      <div className={getTourBlockClass(false, isScanTour)}>
         <h2 className="text-lg md:text-xl font-extrabold text-slate-900 dark:text-white">
           {t.scanner.title}
         </h2>
@@ -478,7 +482,12 @@ export default function ScannerScreen({
       </div>
 
       {/* Mode Switcher */}
-      <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-200/70 dark:bg-slate-900/80 p-1.5 max-w-md">
+      <div
+        className={`grid grid-cols-2 gap-2 rounded-2xl bg-slate-200/70 dark:bg-slate-900/80 p-1.5 max-w-md ${getTourBlockClass(
+          false,
+          isScanTour
+        )}`}
+      >
         <button
           onClick={() => {
             setMode('ocr');
@@ -557,7 +566,13 @@ export default function ScannerScreen({
       {/* Responsive 2-Column Layout on Desktop */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
         {/* Left Column: Live Camera / AR Viewfinder & Input Actions */}
-        <div className="space-y-3">
+        <div
+          className={`space-y-3 p-1 ${getTourBlockClass(
+            tourStepId === 'scan-overview',
+            isScanTour,
+            true
+          )}`}
+        >
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -717,7 +732,12 @@ export default function ScannerScreen({
           {mode === 'ocr' && (
             <>
               {!ocrResult ? (
-                <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/70 p-4 space-y-3">
+                <div
+                  className={`rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/70 p-4 space-y-3 ${getTourBlockClass(
+                    false,
+                    isScanTour
+                  )}`}
+                >
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block">
                     {t.scanner.chooseSample}
                   </label>
@@ -754,7 +774,7 @@ export default function ScannerScreen({
                     animate={{ opacity: 1, y: 0 }}
                     className={`scroll-mt-20 rounded-2xl border bg-emerald-500/10 p-4 space-y-3 transition-all ${
                       tourStepId === 'scan-demo-preview'
-                        ? 'border-emerald-400 ring-2 ring-emerald-400/70'
+                        ? getTourBlockClass(true, true, true)
                         : 'border-emerald-500/40'
                     }`}
                   >

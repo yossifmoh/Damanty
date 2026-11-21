@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { bookServiceOnCloud, requestAiDiagnosis } from '../utils/cloudSync';
 import { diagnoseQuery } from '../utils/troubleshootEngine';
+import { getTourBlockClass } from '../utils/tourFocus';
 
 export default function DiagnosticsScreen({
   devices,
@@ -294,9 +295,11 @@ export default function DiagnosticsScreen({
   const completedCount = steps.filter((s) => checkedSteps[s.id]).length;
   const recommendTech = Boolean(useAiPayload && aiResult.recommendTechnician);
 
+  const isDiagTour = tourStepId === 'diagnostics-live';
+
   return (
     <div className="space-y-4 pb-28 md:pb-10">
-      <div>
+      <div className={getTourBlockClass(false, isDiagTour)}>
         <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
           {t.diagnostics.title}
         </h2>
@@ -337,7 +340,10 @@ export default function DiagnosticsScreen({
           {/* AI Electrical Appliances & Vault Product Assistant */}
           <form
             onSubmit={handleAskAssistant}
-            className="rounded-2xl border border-emerald-500/30 bg-white dark:bg-slate-900/80 p-4 space-y-3 shadow-sm"
+            className={`rounded-2xl border border-emerald-500/30 bg-white dark:bg-slate-900/80 p-4 space-y-3 shadow-sm ${getTourBlockClass(
+              false,
+              isDiagTour
+            )}`}
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-600 dark:text-emerald-400">
@@ -440,8 +446,8 @@ export default function DiagnosticsScreen({
               ref={diagResultRef}
               id="tour-diag-result"
               className={`scroll-mt-20 rounded-2xl border bg-white dark:bg-slate-900/75 backdrop-blur-xl p-4 space-y-3 shadow-sm transition-all ${
-                tourStepId === 'diagnostics-live'
-                  ? 'border-emerald-500/70 ring-2 ring-emerald-400/50'
+                isDiagTour
+                  ? getTourBlockClass(true, true, true)
                   : 'border-slate-200 dark:border-white/10'
               }`}
             >

@@ -26,6 +26,7 @@ import {
   KeyRound,
 } from 'lucide-react';
 import QrCodeSvg from './QrCodeSvg';
+import { getTourBlockClass } from '../utils/tourFocus';
 import {
   getPhotosForDevice,
   savePhotoDoc,
@@ -381,12 +382,20 @@ export default function VaultScreen({
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
+  const isOverviewTour = tourStepId === 'vault-overview';
+  const isCertModalTour =
+    tourStepId === 'vault-open-device' || tourStepId === 'vault-device-qr';
+
   return (
     <div className="space-y-4 pb-28 md:pb-10">
       {/* Interactive Dynamic Header Pill */}
       <motion.div
         layout
-        className="rounded-2xl border border-emerald-500/25 bg-white/90 dark:bg-slate-900/75 backdrop-blur-xl p-3.5 shadow-lg shadow-emerald-500/5"
+        className={`rounded-2xl border border-emerald-500/25 bg-white/90 dark:bg-slate-900/75 backdrop-blur-xl p-3.5 shadow-lg shadow-emerald-500/5 ${getTourBlockClass(
+          true,
+          isOverviewTour,
+          true
+        )}`}
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -465,7 +474,10 @@ export default function VaultScreen({
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-2xl border border-amber-500/35 bg-amber-500/10 dark:bg-amber-500/10 backdrop-blur-xl p-4"
+          className={`rounded-2xl border border-amber-500/35 bg-amber-500/10 dark:bg-amber-500/10 backdrop-blur-xl p-4 ${getTourBlockClass(
+            false,
+            isOverviewTour
+          )}`}
         >
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-500">
@@ -525,7 +537,10 @@ export default function VaultScreen({
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-3xl border border-dashed border-emerald-500/35 bg-white/80 dark:bg-slate-900/60 p-8 text-center space-y-3"
+          className={`rounded-3xl border border-dashed border-emerald-500/35 bg-white/80 dark:bg-slate-900/60 p-8 text-center space-y-3 ${getTourBlockClass(
+            false,
+            isOverviewTour
+          )}`}
         >
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-500">
             <ShieldCheck className="h-7 w-7" />
@@ -551,7 +566,12 @@ export default function VaultScreen({
           </p>
         </motion.div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        <div
+          className={`grid grid-cols-1 md:grid-cols-2 gap-3.5 ${getTourBlockClass(
+            false,
+            isOverviewTour
+          )}`}
+        >
         {devices.map((device, index) => {
           const isExpiring = device.status === 'expiring_soon';
           return (
@@ -672,7 +692,11 @@ export default function VaultScreen({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/70 backdrop-blur-sm md:p-4"
+            className={`fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4 transition-all ${
+              isCertModalTour
+                ? 'bg-black/80 backdrop-blur-md'
+                : 'bg-black/70 backdrop-blur-sm'
+            }`}
             onClick={closeCertificate}
           >
             <motion.div
@@ -835,7 +859,11 @@ export default function VaultScreen({
 
               {/* 3D Flippable Card */}
               <div
-                className="perspective-1200 cursor-pointer select-none"
+                className={`perspective-1200 cursor-pointer select-none ${getTourBlockClass(
+                  true,
+                  isCertModalTour,
+                  true
+                )}`}
                 onClick={() => setIsFlipped((prev) => !prev)}
               >
                 <motion.div
@@ -920,7 +948,13 @@ export default function VaultScreen({
               </p>
 
               {/* Direct Call to Brand Hotline + Troubleshoot */}
-              <div className="mt-4 grid grid-cols-2 gap-2.5">
+              <div
+                className={`mt-4 grid grid-cols-2 gap-2.5 ${getTourBlockClass(
+                  tourStepId === 'vault-open-device',
+                  isCertModalTour,
+                  false
+                )}`}
+              >
                 <motion.a
                   whileTap={{ scale: 0.96 }}
                   href={`tel:${selectedDevice.hotline}`}
@@ -946,7 +980,13 @@ export default function VaultScreen({
               </div>
 
               {/* Encrypted Receipt & Warranty Photo Vault */}
-              <div className="mt-5 rounded-2xl border border-emerald-500/25 bg-white dark:bg-slate-900/70 p-4 space-y-3">
+              <div
+                className={`mt-5 rounded-2xl border border-emerald-500/25 bg-white dark:bg-slate-900/70 p-4 space-y-3 ${getTourBlockClass(
+                  tourStepId === 'vault-device-qr',
+                  isCertModalTour,
+                  true
+                )}`}
+              >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <ImageIcon className="h-4 w-4 text-emerald-500 shrink-0" />
@@ -1034,7 +1074,7 @@ export default function VaultScreen({
               </div>
 
               {/* Device Maintenance History Log */}
-              <div className="mt-5">
+              <div className={`mt-5 ${getTourBlockClass(false, isCertModalTour)}`}>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2.5">
                   {t.vault.maintenanceLog}
                 </h4>
@@ -1079,7 +1119,12 @@ export default function VaultScreen({
               </div>
 
               {/* 1-Tap Warranty Ownership Transfer */}
-              <div className="mt-5 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/70 p-4">
+              <div
+                className={`mt-5 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/70 p-4 ${getTourBlockClass(
+                  false,
+                  isCertModalTour
+                )}`}
+              >
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <h4 className="text-xs font-bold text-slate-900 dark:text-white">
@@ -1180,7 +1225,11 @@ export default function VaultScreen({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/70 backdrop-blur-sm md:p-4"
+            className={`fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4 transition-all ${
+              isCertModalTour
+                ? 'bg-black/80 backdrop-blur-md'
+                : 'bg-black/70 backdrop-blur-sm'
+            }`}
             onClick={closeClaimModal}
           >
             <motion.div

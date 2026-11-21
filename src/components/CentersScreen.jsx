@@ -10,9 +10,11 @@ import {
   Star,
 } from 'lucide-react';
 import { SERVICE_CENTERS } from '../data/mockData';
+import { getTourBlockClass } from '../utils/tourFocus';
 
-export default function CentersScreen({ lang, t }) {
+export default function CentersScreen({ lang, t, tourStepId = null }) {
   const isAr = lang === 'ar';
+  const isCentersTour = tourStepId === 'centers-live';
   const [query, setQuery] = useState('');
   const [cityFilter, setCityFilter] = useState('ALL');
   const [brandFilter, setBrandFilter] = useState('ALL');
@@ -41,7 +43,7 @@ export default function CentersScreen({ lang, t }) {
 
   return (
     <div className="space-y-4 pb-28 md:pb-10">
-      <div>
+      <div className={getTourBlockClass(false, isCentersTour)}>
         <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
           {t.centers.title}
         </h2>
@@ -51,7 +53,13 @@ export default function CentersScreen({ lang, t }) {
       </div>
 
       {/* Anti-Scam Warning Banner */}
-      <div className="rounded-2xl border border-rose-500/35 bg-rose-500/10 p-3.5 flex items-start gap-3">
+      <div
+        className={`rounded-2xl border border-rose-500/35 bg-rose-500/10 p-3.5 flex items-start gap-3 ${getTourBlockClass(
+          true,
+          isCentersTour,
+          true
+        )}`}
+      >
         <ShieldAlert className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
         <div>
           <h3 className="text-xs font-extrabold text-rose-600 dark:text-rose-300">
@@ -64,7 +72,7 @@ export default function CentersScreen({ lang, t }) {
       </div>
 
       {/* Search Bar */}
-      <div className="relative">
+      <div className={`relative ${getTourBlockClass(false, isCentersTour)}`}>
         <Search className="absolute top-3 start-3.5 h-4 w-4 text-slate-400" />
         <input
           type="text"
@@ -76,7 +84,7 @@ export default function CentersScreen({ lang, t }) {
       </div>
 
       {/* City & Brand Filters */}
-      <div className="space-y-2">
+      <div className={`space-y-2 ${getTourBlockClass(false, isCentersTour)}`}>
         <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
           {cities.map((c) => (
             <button
@@ -128,7 +136,13 @@ export default function CentersScreen({ lang, t }) {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        <div
+          className={`grid grid-cols-1 md:grid-cols-2 gap-3.5 ${getTourBlockClass(
+            true,
+            isCentersTour,
+            false
+          )}`}
+        >
         {filtered.map((center) => (
           <motion.div
             key={center.id}

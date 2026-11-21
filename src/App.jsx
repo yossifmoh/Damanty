@@ -546,6 +546,7 @@ export default function App() {
               <SidebarItem
                 active={activeTab === 'vault'}
                 tourHighlight={tourTab === 'vault'}
+                tourDimmed={Boolean(tourTab) && tourTab !== 'vault'}
                 onClick={() => navigateTab('vault')}
                 icon={<ShieldCheck className="h-5 w-5" />}
                 label={t.tabs.vault}
@@ -553,6 +554,7 @@ export default function App() {
               <SidebarItem
                 active={activeTab === 'scan'}
                 tourHighlight={tourTab === 'scan'}
+                tourDimmed={Boolean(tourTab) && tourTab !== 'scan'}
                 onClick={() => navigateTab('scan')}
                 icon={<ScanLine className="h-5 w-5" />}
                 label={t.tabs.scan}
@@ -561,6 +563,7 @@ export default function App() {
               <SidebarItem
                 active={activeTab === 'diagnostics'}
                 tourHighlight={tourTab === 'diagnostics'}
+                tourDimmed={Boolean(tourTab) && tourTab !== 'diagnostics'}
                 onClick={() => navigateTab('diagnostics')}
                 icon={<Wrench className="h-5 w-5" />}
                 label={t.tabs.diagnostics}
@@ -568,6 +571,7 @@ export default function App() {
               <SidebarItem
                 active={activeTab === 'centers'}
                 tourHighlight={tourTab === 'centers'}
+                tourDimmed={Boolean(tourTab) && tourTab !== 'centers'}
                 onClick={() => navigateTab('centers')}
                 icon={<MapPin className="h-5 w-5" />}
                 label={t.tabs.centers}
@@ -575,6 +579,7 @@ export default function App() {
               <SidebarItem
                 active={activeTab === 'account'}
                 tourHighlight={tourTab === 'account'}
+                tourDimmed={Boolean(tourTab) && tourTab !== 'account'}
                 onClick={() => navigateTab('account')}
                 icon={<UserCircle2 className="h-5 w-5" />}
                 label={t.tabs.account}
@@ -757,7 +762,9 @@ export default function App() {
                       tourStepId={tourStepId}
                     />
                   )}
-                  {activeTab === 'centers' && <CentersScreen lang={lang} t={t} />}
+                  {activeTab === 'centers' && (
+                    <CentersScreen lang={lang} t={t} tourStepId={tourStepId} />
+                  )}
                   {activeTab === 'account' && (
                     <AccountB2BScreen
                       lang={lang}
@@ -772,6 +779,7 @@ export default function App() {
                       user={user}
                       onAuthChanged={handleAuthChanged}
                       onReplayTour={openTour}
+                      tourStepId={tourStepId}
                     />
                   )}
                 </motion.div>
@@ -785,6 +793,7 @@ export default function App() {
               <NavTab
                 active={activeTab === 'vault'}
                 tourHighlight={tourTab === 'vault'}
+                tourDimmed={Boolean(tourTab) && tourTab !== 'vault'}
                 onClick={() => navigateTab('vault')}
                 icon={<ShieldCheck className="h-5 w-5" />}
                 label={t.tabs.vault}
@@ -792,13 +801,20 @@ export default function App() {
               <NavTab
                 active={activeTab === 'diagnostics'}
                 tourHighlight={tourTab === 'diagnostics'}
+                tourDimmed={Boolean(tourTab) && tourTab !== 'diagnostics'}
                 onClick={() => navigateTab('diagnostics')}
                 icon={<Wrench className="h-5 w-5" />}
                 label={t.tabs.diagnostics}
               />
 
               {/* Central Floating Emerald AI Scan Button */}
-              <div className="relative -mt-8 flex flex-col items-center">
+              <div
+                className={`relative -mt-8 flex flex-col items-center transition-all duration-300 ${
+                  Boolean(tourTab) && tourTab !== 'scan'
+                    ? 'blur-[1.5px] opacity-45'
+                    : ''
+                }`}
+              >
                 <motion.button
                   whileTap={{ scale: 0.92 }}
                   onClick={() => navigateTab('scan')}
@@ -821,6 +837,7 @@ export default function App() {
               <NavTab
                 active={activeTab === 'centers'}
                 tourHighlight={tourTab === 'centers'}
+                tourDimmed={Boolean(tourTab) && tourTab !== 'centers'}
                 onClick={() => navigateTab('centers')}
                 icon={<MapPin className="h-5 w-5" />}
                 label={t.tabs.centers}
@@ -828,6 +845,7 @@ export default function App() {
               <NavTab
                 active={activeTab === 'account'}
                 tourHighlight={tourTab === 'account'}
+                tourDimmed={Boolean(tourTab) && tourTab !== 'account'}
                 onClick={() => navigateTab('account')}
                 icon={<UserCircle2 className="h-5 w-5" />}
                 label={t.tabs.account}
@@ -855,6 +873,7 @@ export default function App() {
 function SidebarItem({
   active,
   tourHighlight = false,
+  tourDimmed = false,
   onClick,
   icon,
   label,
@@ -867,6 +886,8 @@ function SidebarItem({
       className={`w-full flex items-center gap-3 rounded-2xl px-3.5 py-3 text-xs font-bold transition-all ${
         tourHighlight
           ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-white dark:ring-offset-[#090e1c] shadow-[0_0_24px_rgba(16,185,129,0.5)] '
+          : tourDimmed
+          ? 'blur-[1.5px] opacity-45 '
           : ''
       }${
         active
@@ -882,7 +903,14 @@ function SidebarItem({
   );
 }
 
-function NavTab({ active, tourHighlight = false, onClick, icon, label }) {
+function NavTab({
+  active,
+  tourHighlight = false,
+  tourDimmed = false,
+  onClick,
+  icon,
+  label,
+}) {
   return (
     <motion.button
       whileTap={{ scale: 0.92 }}
@@ -890,6 +918,8 @@ function NavTab({ active, tourHighlight = false, onClick, icon, label }) {
       className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-1 rounded-2xl transition-all ${
         tourHighlight
           ? 'bg-emerald-500/15 ring-2 ring-emerald-400 shadow-[0_0_16px_rgba(16,185,129,0.45)] '
+          : tourDimmed
+          ? 'blur-[1.5px] opacity-45 '
           : ''
       }${
         active

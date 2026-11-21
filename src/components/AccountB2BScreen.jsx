@@ -28,6 +28,7 @@ import {
   signOutAccount,
 } from '../utils/cloudSync';
 import { getDisplayNickname } from '../utils/userDisplay';
+import { getTourBlockClass } from '../utils/tourFocus';
 
 export default function AccountB2BScreen({
   lang,
@@ -40,8 +41,10 @@ export default function AccountB2BScreen({
   user,
   onAuthChanged,
   onReplayTour,
+  tourStepId = null,
 }) {
   const isAr = lang === 'ar';
+  const isAccountTour = tourStepId === 'account-signin';
   const [batchBrand, setBatchBrand] = useState('LG');
   const [batchPrefix, setBatchPrefix] = useState('F4V5-EG26');
   const [batchQty, setBatchQty] = useState(500);
@@ -116,14 +119,20 @@ export default function AccountB2BScreen({
 
   return (
     <div className="space-y-4 pb-28 md:pb-10">
-      <div>
+      <div className={getTourBlockClass(false, isAccountTour)}>
         <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
           {t.account.title}
         </h2>
       </div>
 
       {/* User Account & Sign In / Sign Up / Sign Out Card */}
-      <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/75 backdrop-blur-xl p-4 space-y-4">
+      <div
+        className={`rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/75 backdrop-blur-xl p-4 space-y-4 ${getTourBlockClass(
+          true,
+          isAccountTour,
+          true
+        )}`}
+      >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3.5 min-w-0">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-500">
@@ -321,7 +330,12 @@ export default function AccountB2BScreen({
       </div>
 
       {/* Preferences: Language & Theme */}
-      <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/75 p-4 space-y-3">
+      <div
+        className={`rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/75 p-4 space-y-3 ${getTourBlockClass(
+          false,
+          isAccountTour
+        )}`}
+      >
         <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
           {t.account.preferences}
         </h4>
@@ -367,7 +381,12 @@ export default function AccountB2BScreen({
 
       {/* Dedicated Replayable Tutorial Section */}
       {onReplayTour && (
-        <div className="rounded-2xl border border-emerald-500/25 bg-gradient-to-br from-emerald-500/10 to-teal-500/5 p-4 space-y-2.5">
+        <div
+          className={`rounded-2xl border border-emerald-500/25 bg-gradient-to-br from-emerald-500/10 to-teal-500/5 p-4 space-y-2.5 ${getTourBlockClass(
+            false,
+            isAccountTour
+          )}`}
+        >
           <div className="flex items-start gap-2.5">
             <PlayCircle className="h-5 w-5 text-emerald-500 shrink-0 mt-0.5" />
             <div className="space-y-1">
@@ -399,7 +418,7 @@ export default function AccountB2BScreen({
           b2bMode
             ? 'border-amber-500 bg-gradient-to-br from-amber-500/20 via-emerald-500/10 to-slate-900 shadow-lg shadow-amber-500/10'
             : 'border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/75'
-        }`}
+        } ${getTourBlockClass(false, isAccountTour)}`}
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
