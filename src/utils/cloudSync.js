@@ -344,3 +344,28 @@ export async function requestAiDiagnosis({ query, lang, device, devices }) {
     return { ok: false, error: 'NETWORK_ERROR' };
   }
 }
+
+export async function requestGeminiVisionOcr({ imageBase64, mimeType = 'image/jpeg' }) {
+  try {
+    const res = await fetch('/api/ocr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        imageBase64,
+        mimeType,
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      return {
+        ok: false,
+        configured: data?.configured ?? true,
+        error: data?.error || 'OCR_FAILED',
+      };
+    }
+    return data || { ok: false, error: 'INVALID_RESPONSE' };
+  } catch {
+    return { ok: false, error: 'NETWORK_ERROR' };
+  }
+}

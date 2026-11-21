@@ -1,4 +1,6 @@
 import jsQRImport from 'jsqr';
+import { requestGeminiVisionOcr } from './cloudSync';
+
 const jsQR = jsQRImport?.default || jsQRImport;
 
 const BRAND_CATALOG = [
@@ -254,13 +256,20 @@ async function processPdfFile(file, onProgress) {
   onProgress?.(35);
 
   let finalText = extractedText.trim();
+  let visionData = null;
+  let ocrSource = 'local';
+  let ocrModel = null;
+
   if (finalText.length < 25) {
-    const ocrText = await runTesseractOcr(previewUrl, onProgress);
-    finalText = [finalText, ocrText].filter(Boolean).join('\n');
+    const imgExtract = await extractFromImageSource(previewUrl, onProgress);
+    finalText = [finalText, imgExtract.rawText].filter(Boolean).join('\n');
+    visionData = imgExtract.visionData || null;
+    ocrSource = imgExtract.ocrSource || 'local';
+    ocrModel = imgExtract.ocrModel || null;
   }
 
   onProgress?.(100);
-  return { rawText: finalText, qrText, previewUrl };
+  return { rawText: finalText, qrText, previewUrl, visionData, ocrSource, ocrModel };
 }
 
 async function processWordFile(file, onProgress) {
@@ -278,6 +287,7 @@ async function processWordFile(file, onProgress) {
       qrText: null,
       previewUrl: null,
       warningType: 'legacy_doc',
+      ocrSource: 'local',
     };
   }
 
@@ -305,25 +315,96 @@ async function processWordFile(file, onProgress) {
   }
 
   let qrText = null;
+  let visionData = null;
+  let ocrSource = 'local';
+  let ocrModel = null;
+
   if (embeddedPreview) {
     qrText = await detectQrFromDataUrl(embeddedPreview);
     if (text.length < 30) {
       onProgress?.(35);
-      const ocrText = await runTesseractOcr(embeddedPreview, onProgress);
-      text = [text, ocrText].filter(Boolean).join('\n');
+      const imgExtract = await extractFromImageSource(embeddedPreview, onProgress);
+      text = [text, imgExtract.rawText].filter(Boolean).join('\n');
+      visionData = imgExtract.visionData || null;
+      ocrSource = imgExtract.ocrSource || 'local';
+      ocrModel = imgExtract.ocrModel || null;
     }
   }
 
   onProgress?.(100);
-  return { rawText: text, qrText, previewUrl: embeddedPreview };
+  return {
+    rawText: text,
+    qrText,
+    previewUrl: embeddedPreview,
+    visionData,
+    ocrSource,
+    ocrModel,
+  };
+}
+
+/**
+ * Downscales and compresses receipt images to a small JPEG so Gemini Vision uses minimal tokens.
+ */
+function compressImageForVision(dataUrl, maxDim = 960, quality = 0.74) {
+  return new Promise((resolve) => {
+    if (!dataUrl || !dataUrl.startsWith('data:image')) {
+      resolve(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const largest = Math.max(img.width, img.height);
+      const scale = largest > maxDim ? maxDim / largest : 1;
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const compressedUrl = canvas.toDataURL('image/jpeg', quality);
+      const base64 = compressedUrl.split(',')[1] || '';
+      resolve({ base64, mimeType: 'image/jpeg' });
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
 }
 
 export async function extractFromImageSource(dataUrl, onProgress) {
-  onProgress?.(10);
+  onProgress?.(12);
   const qrText = await detectQrFromDataUrl(dataUrl);
+
+  // 1. Try ultra-low-token Gemini Vision OCR first (great for Arabic & handwritten receipts)
+  onProgress?.(28);
+  const compressed = await compressImageForVision(dataUrl, 960, 0.74);
+  if (compressed?.base64) {
+    onProgress?.(50);
+    const aiRes = await requestGeminiVisionOcr(compressed);
+    if (aiRes?.ok && aiRes.extracted) {
+      onProgress?.(100);
+      return {
+        rawText: aiRes.extracted.rawText || '',
+        qrText,
+        previewUrl: dataUrl,
+        visionData: aiRes.extracted,
+        ocrSource: 'gemini',
+        ocrModel: aiRes.model || 'gemini-3.1-flash-lite',
+      };
+    }
+  }
+
+  // 2. Fallback to offline browser Tesseract OCR + contrast preprocessing (0 API tokens)
   const rawText = await runTesseractOcr(dataUrl, onProgress);
   onProgress?.(100);
-  return { rawText, qrText, previewUrl: dataUrl };
+  return {
+    rawText,
+    qrText,
+    previewUrl: dataUrl,
+    visionData: null,
+    ocrSource: 'local',
+    ocrModel: null,
+  };
 }
 
 export async function extractFromFile(file, onProgress) {
@@ -510,5 +591,72 @@ export function parseEgyptianReceipt(rawText = '', qrText = '', fileName = '') {
     repairTitleEn,
     partAr,
     partEn,
+  };
+}
+
+/**
+ * Merges Gemini Vision structured extraction with verified Egyptian Brand hotlines & date calculation.
+ */
+export function mergeVisionWithReceiptParser(visionData, qrText = '', fileName = '') {
+  if (!visionData || typeof visionData !== 'object') {
+    return parseEgyptianReceipt('', qrText, fileName);
+  }
+
+  const baseFallback = parseEgyptianReceipt(
+    [visionData.brand, visionData.model, visionData.nameAr, visionData.nameEn, visionData.rawText]
+      .filter(Boolean)
+      .join(' '),
+    qrText,
+    fileName
+  );
+
+  const brandText = String(visionData.brand || '').trim().toLowerCase();
+  const catalogBrand =
+    BRAND_CATALOG.find(
+      (b) =>
+        b.brand.toLowerCase() === brandText ||
+        b.keys.some((k) => brandText.includes(k))
+    ) || null;
+
+  const purchaseDate =
+    /^\d{4}-\d{2}-\d{2}$/.test(String(visionData.purchaseDate || '').trim())
+      ? String(visionData.purchaseDate).trim()
+      : baseFallback.purchaseDate;
+
+  const warrantyYears = Math.max(
+    1,
+    Math.min(10, Number(visionData.warrantyYears) || baseFallback.warrantyYears || 3)
+  );
+  const expiryDate = addYearsIso(purchaseDate, warrantyYears);
+
+  return {
+    ...baseFallback,
+    brand: catalogBrand?.brand || visionData.brand || baseFallback.brand,
+    brandAr: catalogBrand?.brandAr || visionData.brand || baseFallback.brandAr,
+    category: visionData.category || baseFallback.category,
+    nameAr: visionData.nameAr || baseFallback.nameAr,
+    nameEn: visionData.nameEn || baseFallback.nameEn,
+    model: visionData.model || baseFallback.model,
+    serial: visionData.serial || baseFallback.serial,
+    purchaseDate,
+    expiryDate,
+    warrantyYears,
+    daysLeft: Math.max(
+      1,
+      Math.round((new Date(`${expiryDate}T00:00:00`).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    ),
+    hotline: catalogBrand?.hotline || baseFallback.hotline,
+    authorizedGroupEn: catalogBrand?.groupEn || baseFallback.authorizedGroupEn,
+    authorizedGroupAr: catalogBrand?.groupAr || baseFallback.authorizedGroupAr,
+    retailerEn: visionData.retailer || baseFallback.retailerEn,
+    retailerAr: visionData.retailer || baseFallback.retailerAr,
+    suggestedDocKind:
+      visionData.docKind === 'maintenance' ? 'maintenance' : baseFallback.suggestedDocKind,
+    detectedCostEgp:
+      Number.isFinite(Number(visionData.costEgp)) && Number(visionData.costEgp) > 0
+        ? Math.round(Number(visionData.costEgp))
+        : baseFallback.detectedCostEgp,
+    repairTitleAr: visionData.repairTitleAr || baseFallback.repairTitleAr,
+    partAr: visionData.partAr || baseFallback.partAr,
   };
 }

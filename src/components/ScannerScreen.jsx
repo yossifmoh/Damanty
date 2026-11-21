@@ -22,6 +22,7 @@ import {
   extractFromFile,
   extractFromImageSource,
   parseEgyptianReceipt,
+  mergeVisionWithReceiptParser,
   detectQrFromCanvas,
   detectQrFromDataUrl,
 } from '../utils/receiptScanner';
@@ -81,6 +82,7 @@ export default function ScannerScreen({
   const [rawText, setRawText] = useState('');
   const [showRawText, setShowRawText] = useState(false);
   const [ocrResult, setOcrResult] = useState(null);
+  const [ocrSource, setOcrSource] = useState(null); // 'gemini' | 'local' | null
 
   // Anti-fake QR state
   const [antiFakeResult, setAntiFakeResult] = useState(null); // { status: 'genuine' | 'counterfeit' | 'not_found', payload?: string }
@@ -131,6 +133,7 @@ export default function ScannerScreen({
       setMode('ocr');
       setSelectedPresetId(OCR_SAMPLE_PRESETS[0].id);
       demoInjectedRef.current = true;
+      setOcrSource(null);
       setSaveTarget('new');
       setOcrResult({
         ...OCR_SAMPLE_PRESETS[0].device,
@@ -308,6 +311,23 @@ export default function ScannerScreen({
     return () => clearInterval(interval);
   }, [cameraActive, mode, stopCamera, evaluateQrPayload]);
 
+  const applyExtractedReceipt = useCallback(
+    (extracted, fileName) => {
+      if (extracted?.previewUrl) setPreviewUrl(extracted.previewUrl);
+      setRawText(extracted?.rawText || '');
+      setOcrSource(extracted?.ocrSource || 'local');
+      const parsed = extracted?.visionData
+        ? mergeVisionWithReceiptParser(extracted.visionData, extracted.qrText, fileName)
+        : parseEgyptianReceipt(extracted?.rawText || '', extracted?.qrText, fileName);
+      setOcrResult(parsed);
+      setSaveTarget(
+        parsed.suggestedDocKind === 'maintenance' && devices.length ? 'maintenance' : 'new'
+      );
+      setMaintCovered(parsed.detectedCostEgp === 0);
+    },
+    [devices.length]
+  );
+
   const captureFromCamera = async () => {
     const video = videoRef.current;
     if (!video || !video.videoWidth) return;
@@ -327,17 +347,15 @@ export default function ScannerScreen({
     }
 
     setOcrResult(null);
+    setOcrSource(null);
     setRawText('');
     setScanning(true);
     setProgress(10);
     try {
       const extracted = await extractFromImageSource(dataUrl, setProgress);
-      setRawText(extracted.rawText || '');
-      const parsed = parseEgyptianReceipt(extracted.rawText, extracted.qrText, 'camera-capture.jpg');
-      setOcrResult(parsed);
-      setSaveTarget(parsed.suggestedDocKind === 'maintenance' && devices.length ? 'maintenance' : 'new');
-      setMaintCovered(parsed.detectedCostEgp === 0);
+      applyExtractedReceipt(extracted, 'camera-capture.jpg');
     } catch {
+      setOcrSource('local');
       setOcrResult(parseEgyptianReceipt('', '', 'camera-capture.jpg'));
       setSaveTarget('new');
     } finally {
@@ -368,6 +386,7 @@ export default function ScannerScreen({
     }
 
     setOcrResult(null);
+    setOcrSource(null);
     setRawText('');
     setPreviewUrl(null);
     setScanning(true);
@@ -375,17 +394,9 @@ export default function ScannerScreen({
 
     try {
       const extracted = await extractFromFile(file, setProgress);
-      if (extracted.previewUrl) setPreviewUrl(extracted.previewUrl);
-      setRawText(extracted.rawText || '');
-      const parsed = parseEgyptianReceipt(
-        extracted.rawText,
-        extracted.qrText,
-        file.name
-      );
-      setOcrResult(parsed);
-      setSaveTarget(parsed.suggestedDocKind === 'maintenance' && devices.length ? 'maintenance' : 'new');
-      setMaintCovered(parsed.detectedCostEgp === 0);
+      applyExtractedReceipt(extracted, file.name);
     } catch {
+      setOcrSource('local');
       setOcrResult(parseEgyptianReceipt('', '', file.name));
       setSaveTarget('new');
     } finally {
@@ -398,6 +409,7 @@ export default function ScannerScreen({
     setPreviewUrl(null);
     setRawText('');
     setOcrResult(null);
+    setOcrSource(null);
     setScanning(true);
     setProgress(25);
     setTimeout(() => {
@@ -746,9 +758,25 @@ export default function ScannerScreen({
                         : 'border-emerald-500/40'
                     }`}
                   >
-                    <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-300">
-                      <CheckCircle2 className="h-5 w-5 shrink-0" />
-                      <h3 className="text-sm font-extrabold">{t.scanner.extractedTitle}</h3>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-300">
+                        <CheckCircle2 className="h-5 w-5 shrink-0" />
+                        <h3 className="text-sm font-extrabold">{t.scanner.extractedTitle}</h3>
+                      </div>
+                      {ocrSource && (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                            ocrSource === 'gemini'
+                              ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                              : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          <Sparkles className="h-3 w-3 shrink-0" />
+                          {ocrSource === 'gemini'
+                            ? t.scanner.ocrBadgeGemini
+                            : t.scanner.ocrBadgeLocal}
+                        </span>
+                      )}
                     </div>
 
                     {/* Save Destination Toggle: New Appliance vs Maintenance Receipt */}
